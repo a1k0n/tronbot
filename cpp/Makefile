@@ -1,18 +1,18 @@
-# The Makefile
-#
-# If you're using Windows and you don't know what this file is,
-# don't worry about it. Just use Visual C++ Express Edition or
-# Dev-C++ to work on your code.
+CXXFLAGS = -g -O3 -Wall
 
-MyTronBot: MyTronBot.o Map.o
-	g++ -o MyTronBot MyTronBot.o Map.o
+OBJS = MyTronBot.o
 
-MyTronBot.o: MyTronBot.cc
-	g++ -c -o MyTronBot.o MyTronBot.cc
-
-Map.o: Map.cc
-	g++ -c -o Map.o Map.cc
+MyTronBot: $(OBJS)
+	$(CXX) $(CXXFLAGS) -o MyTronBot $(OBJS)
 
 clean::
-	rm -f *.o MyTronBot
+	rm -f $(OBJS) MyTronBot
 
+test:: MyTronBot
+	java -jar engine/Tron.jar maps/apocalyptic.txt ./MyTronBot "java -jar example_bots/WallHugger.jar" 0
+
+submission: MyTronBot.cc
+	cd ..; zip cpp/a1k0n.zip cpp/MyTronBot.cc cpp/Makefile
+
+test2:: MyTronBot
+	java -jar engine/Tron.jar maps/divider.txt ./MyTronBot "java -jar example_bots/WallHugger.jar" 0
