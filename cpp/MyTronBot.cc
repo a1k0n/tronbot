@@ -7,7 +7,7 @@
 #include <vector>
 
 // we'll allot .9 seconds to searching
-#define TIMEOUT_USEC 900000
+#define TIMEOUT_USEC 750000
 #define TIMEOUT_CHECK_DEPTH 7
 #define DRAW_PENALTY 0
 
@@ -248,13 +248,13 @@ bool timeout() { return elapsed_time() > TIMEOUT_USEC; }
 // }}}
 
 // {{{ Dijkstra's
-void dijkstra(Map<int> &d, position s)
+void dijkstra(Map<int> &d, position s, Components &cp, int component)
 {
   std::vector<position> Q;
   int i,j;
   for(j=0;j<M.height;j++)
     for(i=0;i<M.width;i++) {
-      if(M(i,j)) continue;
+      if(cp.c(i,j) != component) continue;
       Q.push_back(position(i,j));
       d(i,j) = INT_MAX;
     }
@@ -290,26 +290,34 @@ void dijkstra(Map<int> &d, position s)
 int _evaluate_board(gamestate s, int player)
 {
   Components cp(M);
-  if(cp.component(s.p[0]) == cp.component(s.p[1])) {
+#if 0
+  fprintf(stderr, "evaluating board: \n");
+  M(s.p[player]) = 2; M(s.p[player^1]) = 3; M.dump();
+  M(s.p[0]) = 0; M(s.p[1]) = 0;
+#endif
+  int comp;
+  if((comp = cp.component(s.p[0])) == cp.component(s.p[1])) {
     // i have no idea how to evaluate this.  let's start with a small positive
     // manhattan distance.  we need to come up with something better to figure
     // out who controls the board
     //return M.width+M.height- abs(s.p[0].x - s.p[1].x) - abs(s.p[0].y - s.p[1].y);
     Map<int> dp0(M.width, M.height), dp1(M.width, M.height);
-    dijkstra(dp0, s.p[player]);
-    dijkstra(dp1, s.p[player^1]);
+    dijkstra(dp0, s.p[player], cp, comp);
+    dijkstra(dp1, s.p[player^1], cp, comp);
     int nodecount = 0;
     for(int j=0;j<M.height;j++)
       for(int i=0;i<M.width;i++) {
         int diff = dp0(i,j) - dp1(i,j);
         // if the opponent's distance is shorter than ours, then this is "their" node
-        if(diff>0) nodecount--;
+        if(diff>0) { nodecount--; }
         // otherwise it's ours
-        if(diff<0) nodecount++;
+        if(diff<0) { nodecount++; }
       }
-//    dp0.dump();
-//    dp1.dump();
-//    fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
+#if 0
+    dp0.dump();
+    dp1.dump();
+    fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
+#endif
     return nodecount;
   } else {
     int v = 100*(cp.connectedarea(s.p[player]) -
@@ -337,7 +345,10 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
   // at higher levels of the tree, periodically check timeout.  if we do time
   // out, give up, we can't do any more work; whatever we found so far will
   // have to do
-  if(itr >= TIMEOUT_CHECK_DEPTH && timeout()) return a;
+  if(itr >= TIMEOUT_CHECK_DEPTH && timeout()) {
+    fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
+    return -b;
+  }
 
   for(int m=1;m<=4;m++) {
     if(M(s.p[player].next(m))) // impossible move?
@@ -365,7 +376,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
       M(r.p[1]) = 0;
     }
 
-    if(a > b) // beta cut-off
+    if(a >= b) // beta cut-off
       break;
   }
   return a;
@@ -376,18 +387,22 @@ int next_move_alphabeta()
   int itr = 3;
   int bestv = -1000000, bestm=1;
   reset_timer();
-  while(!timeout()) {
+  for(itr=3;!timeout();itr++) {
     int m;
-    bestv = -1000000;
     int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
-    if(v >= 500) return m;
+    if(v >= 500) {
+      struct timeval tv;
+      gettimeofday(&tv, NULL);
+      fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) -> found compelling move\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, m);
+      return m;
+    }
     if(v > bestv) { bestv = v; bestm = m;}
-    itr++;
     struct timeval tv;
     gettimeofday(&tv, NULL);
     //M.dump();
-    fprintf(stderr, "%d.%06d: best=%d deepening to %d\n", (int) tv.tv_sec, (int) tv.tv_usec, bestv, itr*2);
+    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2);
   }
+  fprintf(stderr, "next_move_alphabeta() -> %d\n", bestm);
   return bestm;
 }
 // }}}
