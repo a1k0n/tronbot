@@ -6,7 +6,7 @@
 #include <map>
 #include <vector>
 
-#define TIMEOUT_USEC 450000
+#define TIMEOUT_USEC 850000
 #define DRAW_PENALTY -100
 
 // {{{ position
@@ -270,6 +270,7 @@ void dijkstra(Map<int> &d, position s, Components &cp, int component)
     for(i=0;i<(int)Q.size();i++)
       if(d(Q[i]) < min_d) { u = Q[i]; min_d = d(u); min_i = i; }
     Q[min_i] = Q[Q.size()-1]; Q.pop_back();
+    if(min_d == INT_MAX) continue; // ??
     for(int m=1;m<=4;m++) {
       position v = u.next(m);
       if(M(v)) continue;
@@ -393,10 +394,10 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 
 int next_move_alphabeta()
 {
-  int itr = 4;
+  int itr;
   int bestv = -1000000, bestm=1;
   reset_timer();
-//  for(itr=3;itr<100 && !timeout();itr++) {
+  for(itr=3;itr<100 && !timeout();itr++) {
     int m;
     int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
     if(v >= 500) {
@@ -410,7 +411,7 @@ int next_move_alphabeta()
 //    gettimeofday(&tv, NULL);
 //    //M.dump();
 //    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2, _ab_runs);
-//  }
+  }
   long e = elapsed_time();
   if(e > TIMEOUT_USEC*11/10) {
     fprintf(stderr, "10%% timeout violation: %ld us\n", e);
