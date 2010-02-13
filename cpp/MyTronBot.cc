@@ -6,7 +6,7 @@
 #include <map>
 #include <vector>
 
-#define TIMEOUT_USEC 750000
+#define TIMEOUT_USEC 450000
 #define DRAW_PENALTY -100
 
 // {{{ position
@@ -245,8 +245,8 @@ long _get_time()
   return tv.tv_usec + tv.tv_sec*1000000;
 }
 
-volatile long _timer;
-volatile bool _timed_out;
+static long _timer;
+static bool _timed_out = false;
 void reset_timer(void) { _timer = _get_time(); _timed_out = false; }
 long elapsed_time() { return _get_time() - _timer; }
 bool timeout() { _timed_out = elapsed_time() > TIMEOUT_USEC; return _timed_out; }
@@ -393,10 +393,10 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 
 int next_move_alphabeta()
 {
-  int itr = 3;
+  int itr = 4;
   int bestv = -1000000, bestm=1;
   reset_timer();
-  for(itr=3;itr<100 && !timeout();itr++) {
+//  for(itr=3;itr<100 && !timeout();itr++) {
     int m;
     int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
     if(v >= 500) {
@@ -410,10 +410,10 @@ int next_move_alphabeta()
 //    gettimeofday(&tv, NULL);
 //    //M.dump();
 //    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2, _ab_runs);
-  }
+//  }
   long e = elapsed_time();
   if(e > TIMEOUT_USEC*11/10) {
-    fprintf(stderr, "10%% timeout violation: %d us\n", e);
+    fprintf(stderr, "10%% timeout violation: %ld us\n", e);
   }
   return bestm;
 }

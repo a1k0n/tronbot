@@ -6,7 +6,7 @@ MyTronBot: $(OBJS)
 	$(CXX) $(CXXFLAGS) -o MyTronBot $(OBJS)
 
 clean::
-	rm -f $(OBJS) MyTronBot
+	rm -f $(OBJS) MyTronBot a1k0n.zip
 
 test:: MyTronBot
 	java -jar engine/Tron.jar maps/apocalyptic.txt ./MyTronBot "java -jar example_bots/WallHugger.jar" 0 2>&1
