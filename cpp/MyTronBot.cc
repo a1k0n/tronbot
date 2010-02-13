@@ -6,8 +6,8 @@
 #include <map>
 #include <vector>
 
-#define TIMEOUT_USEC 500000
-#define TIMEOUT_CHECK_DEPTH 6
+#define TIMEOUT_USEC 260000
+#define TIMEOUT_CHECK_DEPTH 4
 #define DRAW_PENALTY -100
 
 // {{{ position
@@ -256,6 +256,7 @@ bool timeout() { return elapsed_time() > TIMEOUT_USEC; }
 void dijkstra(Map<int> &d, position s, Components &cp, int component)
 {
   std::vector<position> Q;
+  Q.reserve(M.width*M.height);
   int i,j;
   for(j=0;j<M.height;j++)
     for(i=0;i<M.width;i++) {
