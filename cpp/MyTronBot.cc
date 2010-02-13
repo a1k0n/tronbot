@@ -6,8 +6,7 @@
 #include <map>
 #include <vector>
 
-#define TIMEOUT_USEC 260000
-#define TIMEOUT_CHECK_DEPTH 4
+#define TIMEOUT_USEC 750000
 #define DRAW_PENALTY -100
 
 // {{{ position
@@ -96,9 +95,9 @@ struct gamestate {
 
 // }}}
 
-Map<char> M;
-Map<int> dp0, dp1;
-gamestate curstate;
+static Map<char> M;
+static Map<int> dp0, dp1;
+static gamestate curstate;
 
 // {{{ imported map update garbage from original code
 bool map_update()
@@ -246,17 +245,17 @@ long _get_time()
   return tv.tv_usec + tv.tv_sec*1000000;
 }
 
-long _timer;
-void reset_timer(void) { _timer = _get_time(); }
+volatile long _timer;
+volatile bool _timed_out;
+void reset_timer(void) { _timer = _get_time(); _timed_out = false; }
 long elapsed_time() { return _get_time() - _timer; }
-bool timeout() { return elapsed_time() > TIMEOUT_USEC; }
+bool timeout() { _timed_out = elapsed_time() > TIMEOUT_USEC; return _timed_out; }
 // }}}
 
 // {{{ Dijkstra's
 void dijkstra(Map<int> &d, position s, Components &cp, int component)
 {
-  std::vector<position> Q;
-  Q.reserve(M.width*M.height);
+  static std::vector<position> Q;
   int i,j;
   for(j=0;j<M.height;j++)
     for(i=0;i<M.width;i++) {
@@ -336,9 +335,16 @@ int _evaluate_board(gamestate s, int player)
 
 // do an iterative-deepening search on all moves and see if we can find a move
 // sequence that cuts off our opponent
+int _ab_runs=0;
 int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 {
   if(s.p[0] == s.p[1]) { return (player == 1 ? -1 : 1) * DRAW_PENALTY; } // crash!  draw!
+
+  if(_timed_out || ((_ab_runs++)&127) == 0 && timeout()) {
+    //fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
+    return b;
+  }
+
   if(itr == 0) {
     int v = _evaluate_board(s, player);
 //    fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d) -> %d\n", 
@@ -353,12 +359,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
   // at higher levels of the tree, periodically check timeout.  if we do time
   // out, give up, we can't do any more work; whatever we found so far will
   // have to do
-  if(itr >= TIMEOUT_CHECK_DEPTH && timeout()) {
-//    fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
-    return b;
-  }
-
-  for(int m=1;m<=4;m++) {
+  for(int m=1;m<=4 && !_timed_out;m++) {
     if(M(s.p[player].next(m))) // impossible move?
       continue;
     gamestate r = s;
@@ -408,7 +409,11 @@ int next_move_alphabeta()
 //    struct timeval tv;
 //    gettimeofday(&tv, NULL);
 //    //M.dump();
-//    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2);
+//    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2, _ab_runs);
+  }
+  long e = elapsed_time();
+  if(e > TIMEOUT_USEC*11/10) {
+    fprintf(stderr, "10%% timeout violation: %d us\n", e);
   }
   return bestm;
 }
