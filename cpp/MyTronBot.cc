@@ -8,6 +8,7 @@
 
 #define TIMEOUT_USEC 850000
 #define DRAW_PENALTY -100
+#define VERBOSE 0
 
 // {{{ position
 struct position {
@@ -174,7 +175,7 @@ struct Components {
 
   Components(Map<char> &M): c(M.width, M.height)
   {
-    std::map<int,int> equiv;
+//    std::map<int,int> equiv;
     int nextclass = 1;
     for(int j=1;j<M.height-1;j++) {
       for(int i=1;i<M.width-1;i++) {
@@ -189,22 +190,24 @@ struct Components {
           // deprecate the higher-numbered component in favor of the lower
           if(cleft == 0 || (cup != 0 && cup < cleft)) {
             c(i,j) = cup;
-            if(cleft != 0) equiv[cleft] = cup;
+            if(cleft != 0) _merge(cleft, cup);
           } else {
             c(i,j) = cleft;
-            if(cup != 0) equiv[cup] = cleft;
+            if(cup != 0) _merge(cup, cleft);
           }
         }
       }
     }
-    // now make another pass to patch up the equivalences
+#if 0
+    dump();
+    fprintf(stderr, "equivalences: ");
+    for(std::map<int,int>::iterator k=equiv.begin();k!=equiv.end();k++)
+      fprintf(stderr, "%d->%d ", k->first, k->second);
+    fprintf(stderr, "\n");
+#endif
+    // now make another pass to compute connected area
     for(int j=1;j<M.height-1;j++) {
       for(int i=1;i<M.width-1;i++) {
-        while(true) {
-          std::map<int,int>::iterator e = equiv.find(c(i,j));
-          if(e == equiv.end()) break;
-          c(i,j) = e->second;
-        }
         csize[c(i,j)] ++;
       }
     }
@@ -219,6 +222,26 @@ struct Components {
   int component(const position &p) { return c(p); }
   int connectedarea(int component) { return csize[component]; }
   int connectedarea(const position &p) { return csize[c(p)]; }
+private:
+#if 0
+  int _find_equiv(std::map<int,int> &equiv, int c) {
+    while(true) {
+      std::map<int,int>::iterator e = equiv.find(c);
+      if(e == equiv.end()) break;
+      if(c < e->second)
+        c = e->second;
+      else
+        break;
+    }
+    return c;
+  }
+#endif
+  void _merge(int o, int n) {
+    for(int j=1;j<M.height-1;j++)
+      for(int i=1;i<M.width-1;i++)
+        if(c(i,j) == o)
+          c(i,j) = n;
+  }
 };
 
 // }}}
@@ -293,25 +316,23 @@ void dijkstra(Map<int> &d, position s, Components &cp, int component)
 
 // {{{ alpha-beta iterative deepening search
 
-//static int evaluations=0;
+static int evaluations=0;
 int _evaluate_board(gamestate s, int player)
 {
   Components cp(M);
-  //evaluations++;
-#if 0
+  evaluations++;
+#if VERBOSE >= 3
   fprintf(stderr, "evaluating board: \n");
   M(s.p[player]) = 2; M(s.p[player^1]) = 3; M.dump();
   M(s.p[0]) = 0; M(s.p[1]) = 0;
 #endif
   int comp;
   if((comp = cp.component(s.p[0])) == cp.component(s.p[1])) {
-    // i have no idea how to evaluate this.  let's start with a small positive
-    // manhattan distance.  we need to come up with something better to figure
-    // out who controls the board
-    //return M.width+M.height- abs(s.p[0].x - s.p[1].x) - abs(s.p[0].y - s.p[1].y);
-    //Map<int> dp0(M.width, M.height), dp1(M.width, M.height);
     dijkstra(dp0, s.p[player], cp, comp);
     dijkstra(dp1, s.p[player^1], cp, comp);
+#if VERBOSE >= 3
+    Map<int> vor(M.width, M.height);
+#endif
     int nodecount = 0;
     for(int j=0;j<M.height;j++)
       for(int i=0;i<M.width;i++) {
@@ -320,16 +341,23 @@ int _evaluate_board(gamestate s, int player)
         if(diff>0) { nodecount--; }
         // otherwise it's ours
         if(diff<0) { nodecount++; }
+#if VERBOSE >= 3
+        vor(i,j) = diff > 0 ? 1 : diff < 0 ? 2 : 0;
+#endif
       }
-#if 0
+#if VERBOSE >= 3
     dp0.dump();
     dp1.dump();
+    vor.dump();
     fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
 #endif
     return nodecount;
   } else {
     int v = 100*(cp.connectedarea(s.p[player]) -
                  cp.connectedarea(s.p[player^1]));
+#if VERBOSE >= 3
+    fprintf(stderr, "player=%d connectedarea value: %d\n", player, v);
+#endif
     return v;
   }
 }
@@ -342,20 +370,26 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
   if(s.p[0] == s.p[1]) { return (player == 1 ? -1 : 1) * DRAW_PENALTY; } // crash!  draw!
 
   if(_timed_out || ((_ab_runs++)&127) == 0 && timeout()) {
-    //fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
+#if VERBOSE >= 1
+    fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
+#endif
     return b;
   }
 
   if(itr == 0) {
     int v = _evaluate_board(s, player);
-//    fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d) -> %d\n", 
-//            itr, s.p[0].x, s.p[0].y, s.m[0], 
-//            s.p[1].x, s.p[1].y, s.m[1], player, a,b,v);
+#if VERBOSE >= 2
+    fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d) -> %d\n", 
+            itr, s.p[0].x, s.p[0].y, s.m[0], 
+            s.p[1].x, s.p[1].y, s.m[1], player, a,b,v);
+#endif
     return v;
   }
-//  fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d)\n", 
-//          itr, s.p[0].x, s.p[0].y, s.m[0], 
-//          s.p[1].x, s.p[1].y, s.m[1], player, a,b);
+#if VERBOSE >= 2
+  fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d)\n", 
+          itr, s.p[0].x, s.p[0].y, s.m[0], 
+          s.p[1].x, s.p[1].y, s.m[1], player, a,b);
+#endif
 
   // at higher levels of the tree, periodically check timeout.  if we do time
   // out, give up, we can't do any more work; whatever we found so far will
@@ -401,16 +435,20 @@ int next_move_alphabeta()
     int m;
     int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
     if(v >= 500) {
-//      struct timeval tv;
-//      gettimeofday(&tv, NULL);
-//      fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) -> found compelling move\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, m);
+#if VERBOSE >= 1
+      struct timeval tv;
+      gettimeofday(&tv, NULL);
+      fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) -> found compelling move\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, m);
+#endif
       return m;
     }
     if(v > bestv) { bestv = v; bestm = m;}
-//    struct timeval tv;
-//    gettimeofday(&tv, NULL);
-//    //M.dump();
-//    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2, _ab_runs);
+#if VERBOSE >= 1
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    //M.dump();
+    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2, _ab_runs);
+#endif
   }
   long e = elapsed_time();
   if(e > TIMEOUT_USEC*11/10) {
@@ -520,7 +558,9 @@ int next_move_spacefill()
     if(M(p)) continue;
     int v = ca.connectedarea(p) + degreescore[degree(p)];
     if(v > bestv) { bestv = v; bestm = m; }
-//    fprintf(stderr, "move %d: ca=%d, degree=%d, v=%d\n", m, ca.connectedarea(p), degree(p), v);
+#if VERBOSE >= 1
+    fprintf(stderr, "move %d: ca=%d, degree=%d, v=%d\n", m, ca.connectedarea(p), degree(p), v);
+#endif
   }
 
 
@@ -532,6 +572,9 @@ int next_move_spacefill()
 
 int next_move() {
   Components cp(M);
+#if VERBOSE >= 3
+  cp.dump();
+#endif
   if(cp.component(curstate.p[0]) == cp.component(curstate.p[1])) {
     // start-midgame: try to cut off our opponent
     return next_move_alphabeta();
@@ -547,7 +590,9 @@ int main() {
   while (map_update()) {
     printf("%d\n", next_move());
   }
-  //fprintf(stderr, "%d evaluations\n", evaluations);
+#if VERBOSE >= 1
+  fprintf(stderr, "%d evaluations\n", evaluations);
+#endif
   return 0;
 }
 
