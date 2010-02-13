@@ -8,7 +8,7 @@
 
 // we'll allot .9 seconds to searching
 #define TIMEOUT_USEC 750000
-#define TIMEOUT_CHECK_DEPTH 7
+#define TIMEOUT_CHECK_DEPTH 4
 #define DRAW_PENALTY 0
 
 // {{{ position
@@ -347,7 +347,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
   // have to do
   if(itr >= TIMEOUT_CHECK_DEPTH && timeout()) {
     fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
-    return -b;
+    return b;
   }
 
   for(int m=1;m<=4;m++) {
@@ -387,7 +387,7 @@ int next_move_alphabeta()
   int itr = 3;
   int bestv = -1000000, bestm=1;
   reset_timer();
-  for(itr=3;!timeout();itr++) {
+  for(itr=3;itr<100 && !timeout();itr++) {
     int m;
     int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
     if(v >= 500) {
