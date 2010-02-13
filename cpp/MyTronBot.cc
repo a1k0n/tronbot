@@ -1,7 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 #include <map>
+
+// we'll allot .9 seconds to searching
+#define TIMEOUT_USEC 9000000
 
 // {{{ position
 struct position {
@@ -17,6 +21,8 @@ struct position {
   position next(int move) { return position(x+dx[move], y+dy[move]); }
   position prev(int move) { return position(x-dx[move], y-dy[move]); }
 };
+
+bool operator==(const position &a, const position &b) { return a.x == b.x && a.y == b.y; }
 
 const char position::dx[5]={0,0,1,0,-1};
 const char position::dy[5]={0,-1,0,1,0};
@@ -211,6 +217,106 @@ int degree(position x) {
 int turn(int d, int n) { return 1+(d-1+n)&3; }
 // }}}
 
+// {{{ run timing
+long _get_time()
+{
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return tv.tv_usec + tv.tv_sec*1000000;
+}
+
+long _timer;
+void reset_timer(void) { _timer = _get_time(); }
+
+long elapsed_time()
+{
+  long t = _get_time();
+  return t - _timer;
+}
+
+bool timeout() { return elapsed_time() > TIMEOUT_USEC; }
+// }}}
+
+// {{{ alpha-beta iterative deepening search
+
+int _evaluate_board(gamestate s, int player)
+{
+  Components cp(M);
+  if(cp.component(curstate.p[0]) == cp.component(curstate.p[1])) {
+    // i have no idea how to evaluate this.  let's start with a small positive manhattan distance.
+    // we need to come up with something better to figure out who controls the board
+    return M.width + M.height - abs(curstate.p[0].x - curstate.p[1].x) - abs(curstate.p[0].y - curstate.p[1].y);
+  } else {
+    return 100*(cp.connectedarea(curstate.p[player]) - cp.connectedarea(curstate.p[player^1]));
+  }
+}
+
+// do an iterative-deepening search on all moves and see if we can find a move
+// sequence that cuts off our opponent
+int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
+{
+  if(s.p[0] == s.p[1]) { return 0; } // crash!  draw!
+  if(itr == 0) { return _evaluate_board(s, player); }
+
+  // at higher levels of the tree, periodically check timeout.  if we do time
+  // out, give up, we can't do any more work; whatever we found so far will
+  // have to do
+  if(itr > 3 && timeout()) return a;
+
+  for(int m=1;m<=4;m++) {
+    if(M(s.p[player].next(m))) // impossible move?
+      continue;
+    gamestate r = s;
+    r.m[player] = m;
+    // after both players 0 and 1 make their moves, the game state updates
+    if(player == 1) {
+      M(s.p[0]) = 1;
+      M(s.p[1]) = 1;
+      r.p[0] = s.p[0].next(r.m[0]);
+      r.p[1] = s.p[1].next(r.m[1]);
+    }
+    int m_; // next move; discard
+    int a_ = -_alphabeta(m_, r, player^1, -b, -a, itr-1);
+    if(a_ > a) {
+      a = a_;
+      move = m;
+    }
+    if(a >= b) // beta cut-off
+      break;
+
+    // undo game state update
+    if(player == 1) {
+      r.p[0] = s.p[0];
+      r.p[1] = s.p[1];
+      M(r.p[0]) = 0;
+      M(r.p[1]) = 0;
+    }
+  }
+  return a;
+}
+
+int next_move_alphabeta()
+{
+  int itr = 2;
+  int bestv = -1000000, bestm=1;
+  reset_timer();
+  while(!timeout()) {
+    int m;
+    int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr);
+    if(v >= 200) return m;
+    if(v > bestv) { bestv = v; bestm = m;}
+    itr++;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    fprintf(stderr, "%d.%06d: best=%d deepening to %d\n", (int) tv.tv_sec, (int) tv.tv_usec, bestv, itr);
+  }
+  return bestm;
+}
+// }}}
+
+// {{{ space-filling
+
+// {{{ crappy greedy space filler that doesn't work as well as just wall-following
 struct SpaceFiller
 {
   int area, move;
@@ -292,19 +398,15 @@ private:
     return besta;
   }
 };
+// }}}
 
-const int degreescore[] = {-10, 4, 3, 2, 1};
-int next_move() {
-//  Components cp(M);
-//  c.dump();
-//  if(cp.component(curstate.p[0]) == cp.component(curstate.p[1])) { ... }
-//  else { ... }
-
+const int degreescore[] = {0, 4, 3, 2, 1};
+int next_move_spacefill()
+{
   M(curstate.p[0]) = 1;
   M(curstate.p[1]) = 1;
 
   Components ca(M);
-//  ca.dump();
 
   int bestm=1, bestv=0;
   for(int m=1;m<=4;m++) {
@@ -316,9 +418,22 @@ int next_move() {
   }
   
 
-//  SpaceFill s(curstate.p[0], c.connectedarea(curstate.p[0])/2);
+//  SpaceFiller s(curstate.p[0], c.connectedarea(curstate.p[0])/2);
 //  return SpaceFiller::greedy(curstate.p[0]).move;
   return bestm;
+}
+// }}}
+
+int next_move() {
+  Components cp(M);
+  if(cp.component(curstate.p[0]) == cp.component(curstate.p[1])) {
+    // start-midgame: try to cut off our opponent
+    return next_move_alphabeta();
+  } else {
+    // endgame: use up space as efficiently as we can, and hope we have more
+    // left than they do.
+    return next_move_spacefill();
+  }
 }
 
 int main() {
