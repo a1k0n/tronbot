@@ -561,7 +561,9 @@ int next_move_spacefill()
   M(curstate.p[0]) = 1;
   M(curstate.p[1]) = 1;
 
-  Components ca(M, curstate);
+  gamestate nullstate;
+  nullstate.p[0] = nullstate.p[1] = position(0,0);
+  Components ca(M, nullstate);
 
   int bestm=1, bestv=0;
   for(int m=1;m<=4;m++) {
