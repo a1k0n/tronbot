@@ -2,10 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <limits.h>
 #include <map>
+#include <vector>
 
 // we'll allot .9 seconds to searching
-#define TIMEOUT_USEC 9000000
+#define TIMEOUT_USEC 900000
+#define TIMEOUT_CHECK_DEPTH 7
+#define DRAW_PENALTY 0
 
 // {{{ position
 struct position {
@@ -39,15 +43,27 @@ template <class T> struct Map {
     map = new T[w*h];
     memset(map, 0, w*h*sizeof(T));
   }
+  Map(const Map &m) { abort(); } // this shouldn't happen
   ~Map() { if(map) delete[] map; }
   T& operator()(position p) { return map[p.x + p.y*width]; }
   T& operator()(int x, int y) { return map[x + y*width]; }
   T& M(position p) { return map[p.x + p.y*width]; }
   T& M(int x, int y) { return map[x + y*width]; }
 
+  position argmin(void) {
+    position p(0,0);
+    for(int j=0;j<height;j++) {
+      for(int i=0;i<width;i++) {
+        if(M(i,j) < M(p))
+          p = position(i,j);
+      }
+    }
+    return p;
+  }
+
   void dump(void) {
     for(int j=0;j<height;j++) {
-      for(int i=0;i<height;i++) {
+      for(int i=0;i<width;i++) {
         int n = map[i+j*width];
         if(n == 0) fprintf(stderr, "  ");
         else fprintf(stderr, "%2d", n);
@@ -227,14 +243,46 @@ long _get_time()
 
 long _timer;
 void reset_timer(void) { _timer = _get_time(); }
+long elapsed_time() { return _get_time() - _timer; }
+bool timeout() { return elapsed_time() > TIMEOUT_USEC; }
+// }}}
 
-long elapsed_time()
+// {{{ Dijkstra's
+void dijkstra(Map<int> &d, position s)
 {
-  long t = _get_time();
-  return t - _timer;
+  std::vector<position> Q;
+  int i,j;
+  for(j=0;j<M.height;j++)
+    for(i=0;i<M.width;i++) {
+      if(M(i,j)) continue;
+      Q.push_back(position(i,j));
+      d(i,j) = INT_MAX;
+    }
+  d(s) = 0;
+  while(!Q.empty()) {
+    position u(0,0);
+    int min_d = INT_MAX, min_i=0;
+    for(i=0;i<(int)Q.size();i++)
+      if(d(Q[i]) < min_d) { u = Q[i]; min_d = d(u); min_i = i; }
+    Q[min_i] = Q[Q.size()-1]; Q.pop_back();
+    for(int m=1;m<=4;m++) {
+      position v = u.next(m);
+      if(M(v)) continue;
+      int alt = 1 + d(u);
+      if(alt < d(v))
+        d(v) = alt;
+    }
+  }
+#if 0
+  // REMOVEME: cleanup for printing really
+  for(j=0;j<M.height;j++)
+    for(i=0;i<M.width;i++) {
+      if(d(i,j) == INT_MAX)
+        d(i,j) = 0;
+    }
+#endif
 }
 
-bool timeout() { return elapsed_time() > TIMEOUT_USEC; }
 // }}}
 
 // {{{ alpha-beta iterative deepening search
@@ -242,12 +290,31 @@ bool timeout() { return elapsed_time() > TIMEOUT_USEC; }
 int _evaluate_board(gamestate s, int player)
 {
   Components cp(M);
-  if(cp.component(curstate.p[0]) == cp.component(curstate.p[1])) {
-    // i have no idea how to evaluate this.  let's start with a small positive manhattan distance.
-    // we need to come up with something better to figure out who controls the board
-    return M.width + M.height - abs(curstate.p[0].x - curstate.p[1].x) - abs(curstate.p[0].y - curstate.p[1].y);
+  if(cp.component(s.p[0]) == cp.component(s.p[1])) {
+    // i have no idea how to evaluate this.  let's start with a small positive
+    // manhattan distance.  we need to come up with something better to figure
+    // out who controls the board
+    //return M.width+M.height- abs(s.p[0].x - s.p[1].x) - abs(s.p[0].y - s.p[1].y);
+    Map<int> dp0(M.width, M.height), dp1(M.width, M.height);
+    dijkstra(dp0, s.p[player]);
+    dijkstra(dp1, s.p[player^1]);
+    int nodecount = 0;
+    for(int j=0;j<M.height;j++)
+      for(int i=0;i<M.width;i++) {
+        int diff = dp0(i,j) - dp1(i,j);
+        // if the opponent's distance is shorter than ours, then this is "their" node
+        if(diff>0) nodecount--;
+        // otherwise it's ours
+        if(diff<0) nodecount++;
+      }
+//    dp0.dump();
+//    dp1.dump();
+//    fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
+    return nodecount;
   } else {
-    return 100*(cp.connectedarea(curstate.p[player]) - cp.connectedarea(curstate.p[player^1]));
+    int v = 100*(cp.connectedarea(s.p[player]) -
+                 cp.connectedarea(s.p[player^1]));
+    return v;
   }
 }
 
@@ -255,13 +322,22 @@ int _evaluate_board(gamestate s, int player)
 // sequence that cuts off our opponent
 int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 {
-  if(s.p[0] == s.p[1]) { return 0; } // crash!  draw!
-  if(itr == 0) { return _evaluate_board(s, player); }
+  if(s.p[0] == s.p[1]) { return (player == 1 ? -1 : 1) * DRAW_PENALTY; } // crash!  draw!
+  if(itr == 0) {
+    int v = _evaluate_board(s, player);
+//    fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d) -> %d\n", 
+//            itr, s.p[0].x, s.p[0].y, s.m[0], 
+//            s.p[1].x, s.p[1].y, s.m[1], player, a,b,v);
+    return v;
+  }
+//  fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d)\n", 
+//          itr, s.p[0].x, s.p[0].y, s.m[0], 
+//          s.p[1].x, s.p[1].y, s.m[1], player, a,b);
 
   // at higher levels of the tree, periodically check timeout.  if we do time
   // out, give up, we can't do any more work; whatever we found so far will
   // have to do
-  if(itr > 3 && timeout()) return a;
+  if(itr >= TIMEOUT_CHECK_DEPTH && timeout()) return a;
 
   for(int m=1;m<=4;m++) {
     if(M(s.p[player].next(m))) // impossible move?
@@ -281,9 +357,6 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
       a = a_;
       move = m;
     }
-    if(a >= b) // beta cut-off
-      break;
-
     // undo game state update
     if(player == 1) {
       r.p[0] = s.p[0];
@@ -291,24 +364,29 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
       M(r.p[0]) = 0;
       M(r.p[1]) = 0;
     }
+
+    if(a > b) // beta cut-off
+      break;
   }
   return a;
 }
 
 int next_move_alphabeta()
 {
-  int itr = 2;
+  int itr = 3;
   int bestv = -1000000, bestm=1;
   reset_timer();
   while(!timeout()) {
     int m;
-    int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr);
-    if(v >= 200) return m;
+    bestv = -1000000;
+    int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
+    if(v >= 500) return m;
     if(v > bestv) { bestv = v; bestm = m;}
     itr++;
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    fprintf(stderr, "%d.%06d: best=%d deepening to %d\n", (int) tv.tv_sec, (int) tv.tv_usec, bestv, itr);
+    //M.dump();
+    fprintf(stderr, "%d.%06d: best=%d deepening to %d\n", (int) tv.tv_sec, (int) tv.tv_usec, bestv, itr*2);
   }
   return bestm;
 }
@@ -344,12 +422,12 @@ private:
   int _fill_greedy(int &move, position p0, int majordir) {
     // try to fill in row-major or column-major order, looking ahead one row
     // (or column) for the largest opening
-    
+
   }
   int _find_next_greedy(position p, int dir, int majordir) {
     //  0123456789ab
     //  >----------- ->    ##########...
-    //---   ------       ..... 1##### 
+    //---   ------       ..... 1#####
     // travel in dir, finding all 0->1 transitions in the next column over (by majordir)
     // for each 0->1 transition, find the run length going -dir
     // optimize for this_runlen + next_runlen
@@ -416,7 +494,7 @@ int next_move_spacefill()
     if(v > bestv) { bestv = v; bestm = m; }
     fprintf(stderr, "move %d: ca=%d, degree=%d, v=%d\n", m, ca.connectedarea(p), degree(p), v);
   }
-  
+
 
 //  SpaceFiller s(curstate.p[0], c.connectedarea(curstate.p[0])/2);
 //  return SpaceFiller::greedy(curstate.p[0]).move;
