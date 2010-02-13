@@ -6,10 +6,9 @@
 #include <map>
 #include <vector>
 
-// we'll allot .9 seconds to searching
-#define TIMEOUT_USEC 750000
-#define TIMEOUT_CHECK_DEPTH 4
-#define DRAW_PENALTY 0
+#define TIMEOUT_USEC 500000
+#define TIMEOUT_CHECK_DEPTH 6
+#define DRAW_PENALTY -100
 
 // {{{ position
 struct position {
@@ -98,18 +97,23 @@ struct gamestate {
 // }}}
 
 Map<char> M;
+Map<int> dp0, dp1;
 gamestate curstate;
 
 // {{{ imported map update garbage from original code
-void map_update()
+bool map_update()
 {
   int x, y, c;
   int map_width, map_height;
   int num_items = fscanf(stdin, "%d %d\n", &map_width, &map_height);
   if (feof(stdin) || num_items < 2) {
-    exit(0); // End of stream means end of game. Just exit.
+    return false;
   }
-  if(!M.map) M.resize(map_width, map_height);
+  if(!M.map) {
+    M.resize(map_width, map_height);
+    dp0.resize(map_width, map_height);
+    dp1.resize(map_width, map_height);
+  }
   x = 0;
   y = 0;
   while (y < M.height && (c = fgetc(stdin)) != EOF) {
@@ -119,7 +123,7 @@ void map_update()
     case '\n':
       if (x != M.width) {
 	fprintf(stderr, "x != width in Board_ReadFromStream\n");
-	return;
+	return false;
       }
       ++y;
       x = 0;
@@ -127,7 +131,7 @@ void map_update()
     case '#':
       if (x >= M.width) {
 	fprintf(stderr, "x >= width in Board_ReadFromStream\n");
-	return;
+	return false;
       }
       M(x,y) = 1;
       ++x;
@@ -135,7 +139,7 @@ void map_update()
     case ' ':
       if (x >= M.width) {
 	fprintf(stderr, "x >= width in Board_ReadFromStream\n");
-	return;
+	return false;
       }
       M(x,y) = 0;
       ++x;
@@ -144,7 +148,7 @@ void map_update()
     case '2':
       if (x >= M.width) {
 	fprintf(stderr, "x >= width in Board_ReadFromStream\n");
-	return;
+	return false;
       }
       {
         position p(x,y);
@@ -156,9 +160,10 @@ void map_update()
       break;
     default:
       fprintf(stderr, "unexpected character %d in Board_ReadFromStream", c);
-      return;
+      return false;
     }
   }
+  return true;
 }
 // }}}
 
@@ -287,9 +292,11 @@ void dijkstra(Map<int> &d, position s, Components &cp, int component)
 
 // {{{ alpha-beta iterative deepening search
 
+//static int evaluations=0;
 int _evaluate_board(gamestate s, int player)
 {
   Components cp(M);
+  //evaluations++;
 #if 0
   fprintf(stderr, "evaluating board: \n");
   M(s.p[player]) = 2; M(s.p[player^1]) = 3; M.dump();
@@ -301,7 +308,7 @@ int _evaluate_board(gamestate s, int player)
     // manhattan distance.  we need to come up with something better to figure
     // out who controls the board
     //return M.width+M.height- abs(s.p[0].x - s.p[1].x) - abs(s.p[0].y - s.p[1].y);
-    Map<int> dp0(M.width, M.height), dp1(M.width, M.height);
+    //Map<int> dp0(M.width, M.height), dp1(M.width, M.height);
     dijkstra(dp0, s.p[player], cp, comp);
     dijkstra(dp1, s.p[player^1], cp, comp);
     int nodecount = 0;
@@ -346,7 +353,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
   // out, give up, we can't do any more work; whatever we found so far will
   // have to do
   if(itr >= TIMEOUT_CHECK_DEPTH && timeout()) {
-    fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
+//    fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
     return b;
   }
 
@@ -391,18 +398,17 @@ int next_move_alphabeta()
     int m;
     int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
     if(v >= 500) {
-      struct timeval tv;
-      gettimeofday(&tv, NULL);
-      fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) -> found compelling move\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, m);
+//      struct timeval tv;
+//      gettimeofday(&tv, NULL);
+//      fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) -> found compelling move\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, m);
       return m;
     }
     if(v > bestv) { bestv = v; bestm = m;}
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    //M.dump();
-    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2);
+//    struct timeval tv;
+//    gettimeofday(&tv, NULL);
+//    //M.dump();
+//    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2);
   }
-  fprintf(stderr, "next_move_alphabeta() -> %d\n", bestm);
   return bestm;
 }
 // }}}
@@ -507,7 +513,7 @@ int next_move_spacefill()
     if(M(p)) continue;
     int v = ca.connectedarea(p) + degreescore[degree(p)];
     if(v > bestv) { bestv = v; bestm = m; }
-    fprintf(stderr, "move %d: ca=%d, degree=%d, v=%d\n", m, ca.connectedarea(p), degree(p), v);
+//    fprintf(stderr, "move %d: ca=%d, degree=%d, v=%d\n", m, ca.connectedarea(p), degree(p), v);
   }
 
 
@@ -531,10 +537,10 @@ int next_move() {
 
 int main() {
   setlinebuf(stdout);
-  while (true) {
-    map_update();
+  while (map_update()) {
     printf("%d\n", next_move());
   }
+  //fprintf(stderr, "%d evaluations\n", evaluations);
   return 0;
 }
 
