@@ -7,6 +7,7 @@
 #include <vector>
 
 #define TIMEOUT_USEC 850000
+#define INITIAL_DEPTH 1
 #define DRAW_PENALTY -100
 #define VERBOSE 0
 
@@ -173,10 +174,12 @@ struct Components {
   Map<int> c;
   std::map<int,int> csize;
 
-  Components(Map<char> &M): c(M.width, M.height)
+  Components(Map<char> &M, gamestate s): c(M.width, M.height)
   {
 //    std::map<int,int> equiv;
     int nextclass = 1;
+    M(s.p[0]) = 0;
+    M(s.p[1]) = 0;
     for(int j=1;j<M.height-1;j++) {
       for(int i=1;i<M.width-1;i++) {
         if(M(i,j)) continue; // wall
@@ -198,6 +201,8 @@ struct Components {
         }
       }
     }
+    M(s.p[0]) = 1;
+    M(s.p[1]) = 1;
 #if 0
     dump();
     fprintf(stderr, "equivalences: ");
@@ -319,12 +324,12 @@ void dijkstra(Map<int> &d, position s, Components &cp, int component)
 static int evaluations=0;
 int _evaluate_board(gamestate s, int player)
 {
-  Components cp(M);
+  Components cp(M, s);
   evaluations++;
 #if VERBOSE >= 3
   fprintf(stderr, "evaluating board: \n");
   M(s.p[player]) = 2; M(s.p[player^1]) = 3; M.dump();
-  M(s.p[0]) = 0; M(s.p[1]) = 0;
+  M(s.p[0]) = 1; M(s.p[1]) = 1;
 #endif
   int comp;
   if((comp = cp.component(s.p[0])) == cp.component(s.p[1])) {
@@ -401,10 +406,10 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     r.m[player] = m;
     // after both players 0 and 1 make their moves, the game state updates
     if(player == 1) {
-      M(s.p[0]) = 1;
-      M(s.p[1]) = 1;
       r.p[0] = s.p[0].next(r.m[0]);
       r.p[1] = s.p[1].next(r.m[1]);
+      M(r.p[0]) = 1;
+      M(r.p[1]) = 1;
     }
     int m_; // next move; discard
     int a_ = -_alphabeta(m_, r, player^1, -b, -a, itr-1);
@@ -414,10 +419,10 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     }
     // undo game state update
     if(player == 1) {
-      r.p[0] = s.p[0];
-      r.p[1] = s.p[1];
       M(r.p[0]) = 0;
       M(r.p[1]) = 0;
+      r.p[0] = s.p[0];
+      r.p[1] = s.p[1];
     }
 
     if(a >= b) // beta cut-off
@@ -430,11 +435,13 @@ int next_move_alphabeta()
 {
   int itr;
   int bestv = -1000000, bestm=1;
+  M(curstate.p[0]) = 1;
+  M(curstate.p[1]) = 1;
   reset_timer();
-  for(itr=3;itr<100 && !timeout();itr++) {
+  for(itr=INITIAL_DEPTH;itr<100 && !timeout();itr++) {
     int m;
     int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
-    if(v >= 500) {
+    if(v >= 5000) {
 #if VERBOSE >= 1
       struct timeval tv;
       gettimeofday(&tv, NULL);
@@ -449,6 +456,10 @@ int next_move_alphabeta()
     //M.dump();
     fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2, _ab_runs);
 #endif
+    if(v == -10000000) {
+      // deeper searching is apparently impossible
+      break;
+    }
   }
   long e = elapsed_time();
   if(e > TIMEOUT_USEC*11/10) {
@@ -550,7 +561,7 @@ int next_move_spacefill()
   M(curstate.p[0]) = 1;
   M(curstate.p[1]) = 1;
 
-  Components ca(M);
+  Components ca(M, curstate);
 
   int bestm=1, bestv=0;
   for(int m=1;m<=4;m++) {
@@ -571,7 +582,9 @@ int next_move_spacefill()
 // }}}
 
 int next_move() {
-  Components cp(M);
+  gamestate nullstate;
+  nullstate.p[0] = nullstate.p[1] = position(0,0);
+  Components cp(M, nullstate);
 #if VERBOSE >= 3
   cp.dump();
 #endif
