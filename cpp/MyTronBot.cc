@@ -378,7 +378,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 #if VERBOSE >= 1
     fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
 #endif
-    return b;
+    return a;
   }
 
   if(itr == 0) {
@@ -396,9 +396,8 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
           s.p[1].x, s.p[1].y, s.m[1], player, a,b);
 #endif
 
-  // at higher levels of the tree, periodically check timeout.  if we do time
-  // out, give up, we can't do any more work; whatever we found so far will
-  // have to do
+  // periodically check timeout.  if we do time out, give up, we can't do any
+  // more work; whatever we found so far will have to do
   for(int m=1;m<=4 && !_timed_out;m++) {
     if(M(s.p[player].next(m))) // impossible move?
       continue;
@@ -438,9 +437,12 @@ int next_move_alphabeta()
   M(curstate.p[0]) = 1;
   M(curstate.p[1]) = 1;
   reset_timer();
+  evaluations=0;
   for(itr=INITIAL_DEPTH;itr<100 && !timeout();itr++) {
     int m;
+    int bv=-1000000, bm=1;
     int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
+#if 0
     if(v >= 5000) {
 #if VERBOSE >= 1
       struct timeval tv;
@@ -449,22 +451,34 @@ int next_move_alphabeta()
 #endif
       return m;
     }
-    if(v > bestv) { bestv = v; bestm = m;}
+#endif
+    if(v > bv) { bv = v; bm = m;}
 #if VERBOSE >= 1
     struct timeval tv;
     gettimeofday(&tv, NULL);
     //M.dump();
-    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2, _ab_runs);
+    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bv, bm, itr*2, _ab_runs);
 #endif
     if(v == -10000000) {
       // deeper searching is apparently impossible
       break;
     }
+    // update bestv to the results of either the best-so-far this iteration or
+    // the best complete iteration (in other words, better estimates in
+    // previous iterations are irrelevant if a full exploration of a deeper
+    // level doesn't reach them)
+    if(!_timed_out || v > bestv) {
+      bestv = bv; bestm = bm;
+    }
   }
+#if VERBOSE >= 1
   long e = elapsed_time();
+  float rate = (float)evaluations*1000000.0/(float)e;
+  fprintf(stderr, "%d evals in %ld us; %0.1f evals/sec\n", evaluations, e, rate);
   if(e > TIMEOUT_USEC*11/10) {
     fprintf(stderr, "10%% timeout violation: %ld us\n", e);
   }
+#endif
   return bestm;
 }
 // }}}
@@ -605,9 +619,9 @@ int main() {
   while (map_update()) {
     printf("%d\n", next_move());
   }
-#if VERBOSE >= 1
-  fprintf(stderr, "%d evaluations\n", evaluations);
-#endif
+//#if VERBOSE >= 1
+//  fprintf(stderr, "%d evaluations\n", evaluations);
+//#endif
   return 0;
 }
 
