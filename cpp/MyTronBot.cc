@@ -328,6 +328,7 @@ void dijkstra(Map<int> &d, position s, Components &cp, int component)
 
 // {{{ alpha-beta iterative deepening search
 
+//  {{{ evaluation function
 static int evaluations=0;
 int _evaluate_board(gamestate s, int player)
 {
@@ -373,20 +374,21 @@ int _evaluate_board(gamestate s, int player)
     return v;
   }
 }
+//  }}}
 
 // do an iterative-deepening search on all moves and see if we can find a move
 // sequence that cuts off our opponent
 static int _ab_runs=0;
 static char killer[100];
-int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
+int _negascout(int &move, gamestate s, int player, int alpha, int beta, int itr)
 {
   if(s.p[0] == s.p[1]) { return (player == 1 ? -1 : 1) * DRAW_PENALTY; } // crash!  draw!
 
   if(_timed_out || ((_ab_runs++)&127) == 0 && timeout()) {
 #if VERBOSE >= 1
-    fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
+    fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", alpha,beta,itr);
 #endif
-    return a;
+    return alpha;
   }
 
   if(itr == 0) {
@@ -394,26 +396,29 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 #if VERBOSE >= 2
     fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d) -> %d\n", 
             itr, s.p[0].x, s.p[0].y, s.m[0], 
-            s.p[1].x, s.p[1].y, s.m[1], player, a,b,v);
+            s.p[1].x, s.p[1].y, s.m[1], player, alpha,beta,v);
 #endif
     return v;
   }
 #if VERBOSE >= 2
   fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d)\n", 
           itr, s.p[0].x, s.p[0].y, s.m[0], 
-          s.p[1].x, s.p[1].y, s.m[1], player, a,b);
+          s.p[1].x, s.p[1].y, s.m[1], player, alpha,beta);
 #endif
+
+  int b = beta;
 
   // periodically check timeout.  if we do time out, give up, we can't do any
   // more work; whatever we found so far will have to do
   int kill = killer[itr];
+  gamestate r;
   for(int _m=0;_m<=4 && !_timed_out;_m++) {
     // convoluted logic: do "killer heuristic" move first
     if(_m == kill) continue;
     int m = _m == 0 ? kill : _m;
     if(M(s.p[player].next(m))) // impossible move?
       continue;
-    gamestate r = s;
+    r = s;
     r.m[player] = m;
     // after both players 0 and 1 make their moves, the game state updates
     if(player == 1) {
@@ -423,14 +428,24 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
       M(r.p[1]) = 1;
     }
     int m_; // next move; discard
-    int a_ = -_alphabeta(m_, r, player^1, -b, -a, itr-1);
+    int a = -_negascout(m_, r, player^1, -b, -alpha, itr-1);
     if(_timed_out) // a_ is garbage if we timed out
       return -10000000;
-    if(a_ > a) {
-      a = a_;
+    if(a > alpha) {
+      alpha = a;
       move = m;
       killer[itr] = m;
     }
+
+    if(alpha >= beta) // beta cut-off
+      goto early_exit;
+    if(alpha >= b) { // check if null-window failed high (whatever that means)
+      alpha = -_negascout(m_, r, player^1, -beta, -alpha, itr-1);
+      if(alpha >= beta)
+        goto early_exit;
+    }
+    b = alpha+1; // set new null window
+
     // undo game state update
     if(player == 1) {
       M(r.p[0]) = 0;
@@ -438,11 +453,18 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
       r.p[0] = s.p[0];
       r.p[1] = s.p[1];
     }
-
-    if(a >= b) // beta cut-off
-      break;
   }
-  return a;
+  return alpha;
+
+early_exit:
+  // undo game state update
+  if(player == 1) {
+    M(r.p[0]) = 0;
+    M(r.p[1]) = 0;
+    r.p[0] = s.p[0];
+    r.p[1] = s.p[1];
+  }
+  return alpha;
 }
 
 int next_move_alphabeta()
@@ -453,7 +475,7 @@ int next_move_alphabeta()
   evaluations=0;
   for(itr=INITIAL_DEPTH;itr<100 && !timeout();itr++) {
     int m;
-    int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
+    int v = _negascout(m, curstate, 0, -10000000, 10000000, itr*2);
 #if 0
     if(v >= 5000) {
 #if VERBOSE >= 1
