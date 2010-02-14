@@ -28,8 +28,15 @@ struct position {
 
 bool operator==(const position &a, const position &b) { return a.x == b.x && a.y == b.y; }
 
-const char position::dx[5]={0,0,1,0,-1};
-const char position::dy[5]={0,-1,0,1,0};
+// note: the canonical order (above) is changed internally here in order to
+// attain more symmetric play; this is mainly a failing of the evaluation
+// function but it helps, e.g. when playing player 1 in joust
+// so instead it's  1
+//                 4 3
+//                  2
+const char position::dx[5]={0, 0, 0, 1,-1};
+const char position::dy[5]={0,-1, 1, 0, 0};
+const int move_permute[5]={0,1,3,2,4};
 // }}}
 
 // {{{ Map
@@ -436,8 +443,6 @@ int next_move_alphabeta()
 {
   int itr;
   int lastv = -1000000, lastm = 1;
-  M(curstate.p[0]) = 1;
-  M(curstate.p[1]) = 1;
   reset_timer();
   evaluations=0;
   for(itr=INITIAL_DEPTH;itr<100 && !timeout();itr++) {
@@ -570,9 +575,6 @@ private:
 const int degreescore[] = {0, 4, 3, 2, 1};
 int next_move_spacefill()
 {
-  M(curstate.p[0]) = 1;
-  M(curstate.p[1]) = 1;
-
   gamestate nullstate;
   nullstate.p[0] = nullstate.p[1] = position(0,0);
   Components ca(M, nullstate);
@@ -602,6 +604,14 @@ int next_move() {
 #if VERBOSE >= 3
   cp.dump();
 #endif
+  M(curstate.p[0]) = 1;
+  M(curstate.p[1]) = 1;
+  if(degree(curstate.p[0]) == 1) {
+    // only one possible move we can make, so make it and don't waste any time
+    for(int m=1;m<=4;m++)
+      if(!M(curstate.p[0].next(m)))
+        return m;
+  }
   if(cp.component(curstate.p[0]) == cp.component(curstate.p[1])) {
     // start-midgame: try to cut off our opponent
     return next_move_alphabeta();
@@ -615,7 +625,7 @@ int next_move() {
 int main() {
   setlinebuf(stdout);
   while (map_update()) {
-    printf("%d\n", next_move());
+    printf("%d\n", move_permute[next_move()]);
   }
 //#if VERBOSE >= 1
 //  fprintf(stderr, "%d evaluations\n", evaluations);
