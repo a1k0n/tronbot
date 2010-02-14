@@ -168,6 +168,20 @@ bool map_update()
 }
 // }}}
 
+// {{{ basic geometric stuff
+int runout(position p, int dir) {
+  int r = 0;
+  while(!M(p)) { r++; p = p.next(dir); }
+  return r;
+}
+
+int degree(position x) {
+  return 4 - M(x.next(1)) - M(x.next(2)) - M(x.next(3)) - M(x.next(4));
+}
+
+int turn(int d, int n) { return 1+(d-1+n)&3; }
+// }}}
+
 // {{{ connected components algorithm
 
 struct Components {
@@ -213,7 +227,7 @@ struct Components {
     // now make another pass to compute connected area
     for(int j=1;j<M.height-1;j++) {
       for(int i=1;i<M.width-1;i++) {
-        csize[c(i,j)] ++;
+        csize[c(i,j)] += degree(position(i,j));
       }
     }
   }
@@ -225,8 +239,8 @@ struct Components {
     c.dump();
   }
   int component(const position &p) { return c(p); }
-  int connectedarea(int component) { return csize[component]; }
-  int connectedarea(const position &p) { return csize[c(p)]; }
+  int connectedvalue(int component) { return csize[component]; }
+  int connectedvalue(const position &p) { return csize[c(p)]; }
 private:
 #if 0
   int _find_equiv(std::map<int,int> &equiv, int c) {
@@ -249,20 +263,6 @@ private:
   }
 };
 
-// }}}
-
-// {{{ basic geometric stuff
-int runout(position p, int dir) {
-  int r = 0;
-  while(!M(p)) { r++; p = p.next(dir); }
-  return r;
-}
-
-int degree(position x) {
-  return 4 - M(x.next(1)) - M(x.next(2)) - M(x.next(3)) - M(x.next(4));
-}
-
-int turn(int d, int n) { return 1+(d-1+n)&3; }
 // }}}
 
 // {{{ run timing
@@ -343,9 +343,9 @@ int _evaluate_board(gamestate s, int player)
       for(int i=0;i<M.width;i++) {
         int diff = dp0(i,j) - dp1(i,j);
         // if the opponent's distance is shorter than ours, then this is "their" node
-        if(diff>0) { nodecount--; }
+        if(diff>0) { nodecount -= degree(position(i,j)); }
         // otherwise it's ours
-        if(diff<0) { nodecount++; }
+        if(diff<0) { nodecount += degree(position(i,j)); }
 #if VERBOSE >= 3
         vor(i,j) = diff > 0 ? 1 : diff < 0 ? 2 : 0;
 #endif
@@ -358,8 +358,8 @@ int _evaluate_board(gamestate s, int player)
 #endif
     return nodecount;
   } else {
-    int v = 100*(cp.connectedarea(s.p[player]) -
-                 cp.connectedarea(s.p[player^1]));
+    int v = 100*(cp.connectedvalue(s.p[player]) -
+                 cp.connectedvalue(s.p[player^1]));
 #if VERBOSE >= 3
     fprintf(stderr, "player=%d connectedarea value: %d\n", player, v);
 #endif
@@ -413,7 +413,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     int m_; // next move; discard
     int a_ = -_alphabeta(m_, r, player^1, -b, -a, itr-1);
     if(_timed_out) // a_ is garbage if we timed out
-      break;
+      return -10000000;
     if(a_ > a) {
       a = a_;
       move = m;
@@ -435,7 +435,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 int next_move_alphabeta()
 {
   int itr;
-  int bestv = -1000000, bestm=1;
+  int lastv = -1000000, lastm = 1;
   M(curstate.p[0]) = 1;
   M(curstate.p[1]) = 1;
   reset_timer();
@@ -448,34 +448,36 @@ int next_move_alphabeta()
 #if VERBOSE >= 1
       struct timeval tv;
       gettimeofday(&tv, NULL);
-      fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) -> found compelling move\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, m);
+      fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) -> found compelling move\n", (int) tv.tv_sec, (int) tv.tv_usec, v, lastv, m);
 #endif
       return m;
     }
 #endif
-    if(v > bestv) { bestv = v; bestm = m;}
 #if VERBOSE >= 1
     struct timeval tv;
     gettimeofday(&tv, NULL);
     //M.dump();
-    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2, _ab_runs);
+    fprintf(stderr, "%d.%06d: v=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, m, itr*2, _ab_runs);
 #endif
-    if(v == -10000000 || v == 1000000) {
+    if(v == 10000000) // our opponent cannot move, so we win
+      return m;
+    if(v == -10000000) {
       // deeper searching is apparently impossible (either because there are no
-      // more moves for us, no more moves for our opponent -- we're gonna win
-      // -- or because we don't have any time left)
+      // more moves for us or because we don't have any search time left)
       break;
     }
+    lastv = v;
+    lastm = m;
   }
   long e = elapsed_time();
 #if VERBOSE >= 1
   float rate = (float)evaluations*1000000.0/(float)e;
-  fprintf(stderr, "%d evals in %ld us; %0.1f evals/sec\n", evaluations, e, rate);
+  fprintf(stderr, "%d evals in %ld us; %0.1f evals/sec; lastv=%d move=%d\n", evaluations, e, rate, lastv, lastm);
 #endif
   if(e > TIMEOUT_USEC*11/10) {
     fprintf(stderr, "10%% timeout violation: %ld us\n", e);
   }
-  return bestm;
+  return lastm;
 }
 // }}}
 
@@ -579,15 +581,15 @@ int next_move_spacefill()
   for(int m=1;m<=4;m++) {
     position p = curstate.p[0].next(m);
     if(M(p)) continue;
-    int v = ca.connectedarea(p) + degreescore[degree(p)];
+    int v = ca.connectedvalue(p) + degreescore[degree(p)];
     if(v > bestv) { bestv = v; bestm = m; }
 #if VERBOSE >= 1
-    fprintf(stderr, "move %d: ca=%d, degree=%d, v=%d\n", m, ca.connectedarea(p), degree(p), v);
+    fprintf(stderr, "move %d: ca=%d, degree=%d, v=%d\n", m, ca.connectedvalue(p), degree(p), v);
 #endif
   }
 
 
-//  SpaceFiller s(curstate.p[0], c.connectedarea(curstate.p[0])/2);
+//  SpaceFiller s(curstate.p[0], c.connectedvalue(curstate.p[0])/2);
 //  return SpaceFiller::greedy(curstate.p[0]).move;
   return bestm;
 }
