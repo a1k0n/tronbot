@@ -481,14 +481,14 @@ int next_move_alphabeta()
     lastv = v;
     lastm = m;
   }
-  long e = elapsed_time();
 #if VERBOSE >= 1
+  long e = elapsed_time();
   float rate = (float)evaluations*1000000.0/(float)e;
   fprintf(stderr, "%d evals in %ld us; %0.1f evals/sec; lastv=%d move=%d\n", evaluations, e, rate, lastv, lastm);
-#endif
   if(e > TIMEOUT_USEC*11/10) {
     fprintf(stderr, "10%% timeout violation: %ld us\n", e);
   }
+#endif
   return lastm;
 }
 // }}}
