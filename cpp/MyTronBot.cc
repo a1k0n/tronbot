@@ -424,8 +424,6 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     }
     int m_; // next move; discard
     int a_ = -_alphabeta(m_, r, player^1, -b, -a, itr-1);
-    if(_timed_out) // a_ is garbage if we timed out
-      return -10000000;
     if(a_ > a) {
       a = a_;
       move = m;
@@ -438,6 +436,9 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
       r.p[0] = s.p[0];
       r.p[1] = s.p[1];
     }
+
+    if(_timed_out) // a_ is garbage if we timed out
+      return -10000000;
 
     if(a >= b) // beta cut-off
       break;
