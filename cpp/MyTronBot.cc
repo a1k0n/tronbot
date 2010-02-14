@@ -282,7 +282,8 @@ long _get_time()
 
 static long _timer;
 static bool _timed_out = false;
-void reset_timer(void) { _timer = _get_time(); _timed_out = false; }
+static int _ab_runs=0;
+void reset_timer(void) { _timer = _get_time(); _timed_out = false; _ab_runs = 0; }
 long elapsed_time() { return _get_time() - _timer; }
 bool timeout() { _timed_out = elapsed_time() > TIMEOUT_USEC; return _timed_out; }
 // }}}
@@ -376,8 +377,7 @@ int _evaluate_board(gamestate s, int player)
 
 // do an iterative-deepening search on all moves and see if we can find a move
 // sequence that cuts off our opponent
-static int _ab_runs=0;
-static char killer[100];
+static char killer[200];
 int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 {
   if(s.p[0] == s.p[1]) { return (player == 1 ? -1 : 1) * DRAW_PENALTY; } // crash!  draw!
