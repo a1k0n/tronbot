@@ -376,7 +376,8 @@ int _evaluate_board(gamestate s, int player)
 
 // do an iterative-deepening search on all moves and see if we can find a move
 // sequence that cuts off our opponent
-int _ab_runs=0;
+static int _ab_runs=0;
+static char killer[100];
 int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 {
   if(s.p[0] == s.p[1]) { return (player == 1 ? -1 : 1) * DRAW_PENALTY; } // crash!  draw!
@@ -405,7 +406,11 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 
   // periodically check timeout.  if we do time out, give up, we can't do any
   // more work; whatever we found so far will have to do
-  for(int m=1;m<=4 && !_timed_out;m++) {
+  int kill = killer[itr];
+  for(int _m=0;_m<=4 && !_timed_out;_m++) {
+    // convoluted logic: do "killer heuristic" move first
+    if(_m == kill) continue;
+    int m = _m == 0 ? kill : _m;
     if(M(s.p[player].next(m))) // impossible move?
       continue;
     gamestate r = s;
@@ -424,6 +429,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     if(a_ > a) {
       a = a_;
       move = m;
+      killer[itr] = m;
     }
     // undo game state update
     if(player == 1) {
@@ -624,6 +630,7 @@ int next_move() {
 
 int main() {
   setlinebuf(stdout);
+  memset(killer, 1, sizeof(killer));
   while (map_update()) {
     printf("%d\n", move_permute[next_move()]);
   }
