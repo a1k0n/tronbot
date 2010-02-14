@@ -6,7 +6,7 @@
 #include <map>
 #include <vector>
 
-#define TIMEOUT_USEC 850000
+#define TIMEOUT_USEC 950000
 #define INITIAL_DEPTH 1
 #define DRAW_PENALTY -100
 #define VERBOSE 0
@@ -412,6 +412,8 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     }
     int m_; // next move; discard
     int a_ = -_alphabeta(m_, r, player^1, -b, -a, itr-1);
+    if(_timed_out) // a_ is garbage if we timed out
+      break;
     if(a_ > a) {
       a = a_;
       move = m;
@@ -440,7 +442,6 @@ int next_move_alphabeta()
   evaluations=0;
   for(itr=INITIAL_DEPTH;itr<100 && !timeout();itr++) {
     int m;
-    int bv=-1000000, bm=1;
     int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
 #if 0
     if(v >= 5000) {
@@ -452,33 +453,28 @@ int next_move_alphabeta()
       return m;
     }
 #endif
-    if(v > bv) { bv = v; bm = m;}
+    if(v > bestv) { bestv = v; bestm = m;}
 #if VERBOSE >= 1
     struct timeval tv;
     gettimeofday(&tv, NULL);
     //M.dump();
-    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bv, bm, itr*2, _ab_runs);
+    fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, bestv, bestm, itr*2, _ab_runs);
 #endif
-    if(v == -10000000) {
-      // deeper searching is apparently impossible
+    if(v == -10000000 || v == 1000000) {
+      // deeper searching is apparently impossible (either because there are no
+      // more moves for us, no more moves for our opponent -- we're gonna win
+      // -- or because we don't have any time left)
       break;
     }
-    // update bestv to the results of either the best-so-far this iteration or
-    // the best complete iteration (in other words, better estimates in
-    // previous iterations are irrelevant if a full exploration of a deeper
-    // level doesn't reach them)
-    if(!_timed_out || v > bestv) {
-      bestv = bv; bestm = bm;
-    }
   }
-#if VERBOSE >= 1
   long e = elapsed_time();
+#if VERBOSE >= 1
   float rate = (float)evaluations*1000000.0/(float)e;
   fprintf(stderr, "%d evals in %ld us; %0.1f evals/sec\n", evaluations, e, rate);
+#endif
   if(e > TIMEOUT_USEC*11/10) {
     fprintf(stderr, "10%% timeout violation: %ld us\n", e);
   }
-#endif
   return bestm;
 }
 // }}}
