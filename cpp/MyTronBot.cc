@@ -7,7 +7,9 @@
 #include <vector>
 
 #define TIMEOUT_USEC 950000
-#define INITIAL_DEPTH 1
+#define FIRSTMOVE_USEC 2950000
+#define DEPTH_INITIAL 1
+#define DEPTH_MAX 100
 #define DRAW_PENALTY -100
 #define VERBOSE 0
 
@@ -280,12 +282,19 @@ long _get_time()
   return tv.tv_usec + tv.tv_sec*1000000;
 }
 
-static long _timer;
+static long _timer, _timeout;
 static bool _timed_out = false;
 static int _ab_runs=0;
-void reset_timer(void) { _timer = _get_time(); _timed_out = false; _ab_runs = 0; }
+void reset_timer(long t)
+{
+  _timer = _get_time();
+  _timed_out = false;
+  _ab_runs = 0;
+  _timeout = t;
+}
+
 long elapsed_time() { return _get_time() - _timer; }
-bool timeout() { _timed_out = elapsed_time() > TIMEOUT_USEC; return _timed_out; }
+bool timeout() { _timed_out = elapsed_time() > _timeout; return _timed_out; }
 // }}}
 
 // {{{ Dijkstra's
@@ -377,7 +386,8 @@ int _evaluate_board(gamestate s, int player)
 
 // do an iterative-deepening search on all moves and see if we can find a move
 // sequence that cuts off our opponent
-static char killer[200];
+static char _killer[DEPTH_MAX*2];
+static int _maxitr=0;
 int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 {
   if(s.p[0] == s.p[1]) { return (player == 1 ? -1 : 1) * DRAW_PENALTY; } // crash!  draw!
@@ -406,7 +416,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 
   // periodically check timeout.  if we do time out, give up, we can't do any
   // more work; whatever we found so far will have to do
-  int kill = killer[itr];
+  int kill = _killer[_maxitr-itr];
   for(int _m=0;_m<=4 && !_timed_out;_m++) {
     // convoluted logic: do "killer heuristic" move first
     if(_m == kill) continue;
@@ -427,7 +437,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     if(a_ > a) {
       a = a_;
       move = m;
-      killer[itr] = m;
+      _killer[_maxitr-itr] = m;
     }
     // undo game state update
     if(player == 1) {
@@ -446,14 +456,17 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
   return a;
 }
 
+static bool firstmove = true;
 int next_move_alphabeta()
 {
   int itr;
   int lastv = -1000000, lastm = 1;
-  reset_timer();
+  reset_timer(firstmove ? FIRSTMOVE_USEC : TIMEOUT_USEC);
+  firstmove=false;
   evaluations=0;
-  for(itr=INITIAL_DEPTH;itr<100 && !timeout();itr++) {
+  for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !timeout();itr++) {
     int m;
+    _maxitr = itr*2;
     int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
 #if 0
     if(v >= 5000) {
@@ -630,7 +643,7 @@ int next_move() {
 }
 
 int main() {
-  memset(killer, 1, sizeof(killer));
+  memset(_killer, 1, sizeof(_killer));
   while (map_update()) {
     printf("%d\n", move_permute[next_move()]);
     fflush(stdout);
