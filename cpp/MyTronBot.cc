@@ -630,10 +630,10 @@ int next_move() {
 }
 
 int main() {
-  setlinebuf(stdout);
   memset(killer, 1, sizeof(killer));
   while (map_update()) {
     printf("%d\n", move_permute[next_move()]);
+    fflush(stdout);
   }
 //#if VERBOSE >= 1
 //  fprintf(stderr, "%d evaluations\n", evaluations);
