@@ -209,7 +209,7 @@ int turn(int d, int n) { return 1+(d-1+n)&3; }
 
 struct Components {
   Map<int> c;
-  std::map<int,int> csize;
+  std::map<int,int> cedges, csize;
 
   Components(Map<char> &M): c(M.width, M.height) { recalc(); }
 
@@ -250,32 +250,37 @@ struct Components {
     for(int j=1;j<M.height-1;j++) {
       for(int i=1;i<M.width-1;i++) {
         c(i,j) = equiv[c(i,j)];
-        csize[c(i,j)] += degree(position(i,j));
+        cedges[c(i,j)] += degree(position(i,j));
+        csize[c(i,j)] ++;
       }
     }
   }
 
   void remove(position s) {
-    csize[c(s)] -= 2*degree(s);
+    cedges[c(s)] -= 2*degree(s);
+    csize[c(s)] --;
     if(_potential_articulation[neighbors(s)])
       recalc();
   }
   void add(position s) {
-    csize[c(s)] += 2*degree(s);
+    cedges[c(s)] += 2*degree(s);
+    csize[c(s)] ++;
     if(_potential_articulation[neighbors(s)])
       recalc();
   }
 
   void dump() {
     std::map<int,int>::iterator i;
-    for(i=csize.begin();i!=csize.end();i++) {
+    for(i=cedges.begin();i!=cedges.end();i++) {
       fprintf(stderr, "area %d: %d vertices\n", i->first, i->second);
     }
     c.dump();
   }
   int component(const position &p) { return c(p); }
-  int connectedvalue(int component) { return csize[component]; }
-  int connectedvalue(const position &p) { return csize[c(p)]; }
+  int connectedarea(int component) { return csize[component]; }
+  int connectedarea(const position &p) { return csize[c(p)]; }
+  int connectedvalue(int component) { return cedges[component]; }
+  int connectedvalue(const position &p) { return cedges[c(p)]; }
 private:
 #if 0
   int _find_equiv(std::map<int,int> &equiv, int c) {
@@ -450,8 +455,9 @@ int _evaluate_board(gamestate s, int player)
   } else {
     // since each bot is in a separate component by definition here, it's OK to
     // destructively update cp for floodfill()
-    int v = 100*(floodfill(cp, s.p[player]) -
-                 floodfill(cp, s.p[player^1]));
+    int v = 100*(floodfill(cp, s.p[0]) -
+                 cp.connectedarea(s.p[1]));
+    if(player == 1) v = -v;
 //    int v = 100*(cp.connectedvalue(s.p[player]) -
 //                 cp.connectedvalue(s.p[player^1]));
 #if VERBOSE >= 3
