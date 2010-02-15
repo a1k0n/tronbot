@@ -446,9 +446,9 @@ int _evaluate_board(gamestate s, int player)
         position p(i,j);
         int diff = dp0(i,j) - dp1(i,j);
         // if the opponent's distance is shorter than ours, then this is "their" node
-        if(diff>0) { nodecount -= degree(p) - 4*potential_articulation(p); }
+        if(diff>0) { nodecount -= degree(p) - potential_articulation(p); }
         // otherwise it's ours
-        if(diff<0) { nodecount += degree(p) - 4*potential_articulation(p); }
+        if(diff<0) { nodecount += degree(p) - potential_articulation(p); }
 #if VERBOSE >= 3
         vor(i,j) = diff > 0 ? 1 : diff < 0 ? 2 : 0;
 #endif
