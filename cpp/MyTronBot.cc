@@ -13,7 +13,7 @@
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
 #define DRAW_PENALTY 0 // -500
-#define VERBOSE 1
+#define VERBOSE 0
 
 // {{{ position
 struct position {
