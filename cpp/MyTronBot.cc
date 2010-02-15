@@ -339,10 +339,10 @@ void dijkstra(Map<int> &d, position s, Components &cp, int component)
   int i,j;
   for(j=0;j<M.height;j++)
     for(i=0;i<M.width;i++) {
+      d(i,j) = INT_MAX;
       if(cp.c(i,j) != component) continue;
       if(M(i,j)) continue; // the player and his opponent are considered walls here
       Q.push_back(position(i,j));
-      d(i,j) = INT_MAX;
     }
   Q.push_back(s);
   d(s) = 0;
@@ -361,7 +361,7 @@ void dijkstra(Map<int> &d, position s, Components &cp, int component)
         d(v) = alt;
     }
   }
-#if 0
+#if 1
   // REMOVEME: cleanup for printing really
   for(j=0;j<M.height;j++)
     for(i=0;i<M.width;i++) {
@@ -419,7 +419,7 @@ int next_move_spacefill()
 
 // {{{ heuristic board evaluation
 static int evaluations=0;
-int _evaluate_board(gamestate s, int player)
+int _evaluate_board(gamestate s, int player, bool vis=false)
 {
   // remove players from the board when evaluating connected components,
   // because if a player is separating components he still gets to choose which
@@ -429,16 +429,18 @@ int _evaluate_board(gamestate s, int player)
   M(s.p[0]) = 1; M(s.p[1]) = 1;
 
   evaluations++;
-#if VERBOSE >= 3
-  fprintf(stderr, "evaluating board: \n");
-  M(s.p[player]) = 2; M(s.p[player^1]) = 3; M.dump();
-  M(s.p[0]) = 1; M(s.p[1]) = 1;
+#if VERBOSE >= 2
+  if(vis) {
+    fprintf(stderr, "evaluating board: \n");
+    M(s.p[player]) = 2; M(s.p[player^1]) = 3; M.dump();
+    M(s.p[0]) = 1; M(s.p[1]) = 1;
+  }
 #endif
   int comp;
   if((comp = cp.component(s.p[0])) == cp.component(s.p[1])) {
     dijkstra(dp0, s.p[player], cp, comp);
     dijkstra(dp1, s.p[player^1], cp, comp);
-#if VERBOSE >= 3
+#if VERBOSE >= 2
     Map<int> vor(M.width, M.height);
 #endif
     int nodecount = 0;
@@ -447,30 +449,34 @@ int _evaluate_board(gamestate s, int player)
         position p(i,j);
         int diff = dp0(i,j) - dp1(i,j);
         // if the opponent's distance is shorter than ours, then this is "their" node
-        if(diff>0) { nodecount -= degree(p); } // - potential_articulation(p); }
+        if(diff>0) { nodecount -= degree(p) - potential_articulation(p); }
         // otherwise it's ours
-        if(diff<0) { nodecount += degree(p); } // - potential_articulation(p); }
-#if VERBOSE >= 3
-        vor(i,j) = diff > 0 ? 1 : diff < 0 ? 2 : 0;
+        if(diff<0) { nodecount += degree(p) - potential_articulation(p); }
+#if VERBOSE >= 2
+        vor(i,j) = diff > 0 ? 2 : diff < 0 ? 1 : 0;
 #endif
       }
-#if VERBOSE >= 3
-    dp0.dump();
-    dp1.dump();
-    vor.dump();
-    fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
+#if VERBOSE >= 2
+    if(vis) {
+      dp0.dump();
+      dp1.dump();
+      vor.dump();
+      fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
+    }
 #endif
     return nodecount;
   } else {
     // since each bot is in a separate component by definition here, it's OK to
     // destructively update cp for floodfill()
-    int v = 100*(floodfill(cp, s.p[0]) -
-                 cp.connectedarea(s.p[1]));
+    int v = 10000*(floodfill(cp, s.p[0]) -
+                   cp.connectedarea(s.p[1]));
     if(player == 1) v = -v;
 //    int v = 100*(cp.connectedvalue(s.p[player]) -
 //                 cp.connectedvalue(s.p[player^1]));
-#if VERBOSE >= 3
-    fprintf(stderr, "player=%d connectedarea value: %d\n", player, v);
+#if VERBOSE >= 2
+    if(vis) {
+      fprintf(stderr, "player=%d connectedarea value: %d\n", player, v);
+    }
 #endif
     return v;
   }
@@ -496,14 +502,14 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 
   if(itr == 0) {
     int v = _evaluate_board(s, player);
-#if VERBOSE >= 2
+#if VERBOSE >= 3
     fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d) -> %d\n", 
             itr, s.p[0].x, s.p[0].y, s.m[0], 
             s.p[1].x, s.p[1].y, s.m[1], player, a,b,v);
 #endif
     return v;
   }
-#if VERBOSE >= 2
+#if VERBOSE >= 3
   fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d)\n", 
           itr, s.p[0].x, s.p[0].y, s.m[0], 
           s.p[1].x, s.p[1].y, s.m[1], player, a,b);
@@ -603,8 +609,9 @@ int next_move_alphabeta()
 
 int next_move() {
   Components cp(M);
-#if VERBOSE >= 3
+#if VERBOSE >= 2
   cp.dump();
+  _evaluate_board(curstate, 0, true);
 #endif
   M(curstate.p[0]) = 1;
   M(curstate.p[1]) = 1;
