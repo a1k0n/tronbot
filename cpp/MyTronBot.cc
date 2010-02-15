@@ -200,15 +200,18 @@ struct Components {
   Components(Map<char> &M, gamestate s): c(M.width, M.height)
   {
 //    std::map<int,int> equiv;
+    static std::vector<int> equiv;
+    equiv.clear(); equiv.push_back(0);
     int nextclass = 1;
     M(s.p[0]) = 0;
     M(s.p[1]) = 0;
     for(int j=1;j<M.height-1;j++) {
       for(int i=1;i<M.width-1;i++) {
         if(M(i,j)) continue; // wall
-        int cup   = c(i, j-1),
-            cleft = c(i-1, j);
+        int cup   = equiv[c(i, j-1)],
+            cleft = equiv[c(i-1, j)];
         if(cup == 0 && cleft == 0) { // new component
+          equiv.push_back(nextclass);
           c(i,j) = nextclass++;
         } else if(cup == cleft) { // existing component
           c(i,j) = cup;
@@ -216,10 +219,10 @@ struct Components {
           // deprecate the higher-numbered component in favor of the lower
           if(cleft == 0 || (cup != 0 && cup < cleft)) {
             c(i,j) = cup;
-            if(cleft != 0) _merge(cleft, cup);
+            if(cleft != 0) _merge(equiv, cleft, cup);
           } else {
             c(i,j) = cleft;
-            if(cup != 0) _merge(cup, cleft);
+            if(cup != 0) _merge(equiv, cup, cleft);
           }
         }
       }
@@ -229,13 +232,14 @@ struct Components {
 #if 0
     dump();
     fprintf(stderr, "equivalences: ");
-    for(std::map<int,int>::iterator k=equiv.begin();k!=equiv.end();k++)
-      fprintf(stderr, "%d->%d ", k->first, k->second);
+    for(int k=0;k<equiv.size();k++)
+      fprintf(stderr, "%d->%d ", k, equiv[k]);
     fprintf(stderr, "\n");
 #endif
     // now make another pass to compute connected area
     for(int j=1;j<M.height-1;j++) {
       for(int i=1;i<M.width-1;i++) {
+        c(i,j) = equiv[c(i,j)];
         csize[c(i,j)] += degree(position(i,j));
       }
     }
@@ -264,11 +268,9 @@ private:
     return c;
   }
 #endif
-  void _merge(int o, int n) {
-    for(int j=1;j<M.height-1;j++)
-      for(int i=1;i<M.width-1;i++)
-        if(c(i,j) == o)
-          c(i,j) = n;
+  void _merge(std::vector<int> &equiv, int o, int n) {
+    for(size_t k=0;k<equiv.size();k++)
+      if(equiv[k] == o) equiv[k] = n;
   }
 };
 
