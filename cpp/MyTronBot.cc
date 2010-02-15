@@ -12,7 +12,7 @@
 #define FIRSTMOVE_USEC 2950000
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
-#define DRAW_PENALTY 0
+#define DRAW_PENALTY -500
 #define VERBOSE 1
 
 // {{{ position
