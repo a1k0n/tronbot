@@ -13,7 +13,7 @@
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
 #define DRAW_PENALTY 0
-#define VERBOSE 0
+#define VERBOSE 1
 
 // {{{ position
 struct position {
@@ -216,6 +216,7 @@ struct Components {
   void recalc(void) {
     static std::vector<int> equiv;
     equiv.clear(); equiv.push_back(0);
+    cedges.clear(); csize.clear();
     int nextclass = 1;
     for(int j=1;j<M.height-1;j++) {
       for(int i=1;i<M.width-1;i++) {
@@ -239,13 +240,6 @@ struct Components {
         }
       }
     }
-#if 0
-    dump();
-    fprintf(stderr, "equivalences: ");
-    for(int k=0;k<equiv.size();k++)
-      fprintf(stderr, "%d->%d ", k, equiv[k]);
-    fprintf(stderr, "\n");
-#endif
     // now make another pass to compute connected area
     for(int j=1;j<M.height-1;j++) {
       for(int i=1;i<M.width-1;i++) {
@@ -257,22 +251,32 @@ struct Components {
   }
 
   void remove(position s) {
-    cedges[c(s)] -= 2*degree(s);
-    csize[c(s)] --;
-    if(_potential_articulation[neighbors(s)])
+    c(s) = 0;
+    if(_potential_articulation[neighbors(s)]) {
       recalc();
+    } else {
+      cedges[c(s)] -= 2*degree(s);
+      csize[c(s)] --;
+    }
   }
   void add(position s) {
+    for(int m=1;m<=4;m++) {
+      position r = s.next(m);
+      if(M(r)) continue;
+      if(c(s) != 0 && c(s) != c(r)) { recalc(); return; }
+      c(s) = c(r);
+    }
     cedges[c(s)] += 2*degree(s);
     csize[c(s)] ++;
-    if(_potential_articulation[neighbors(s)])
-      recalc();
   }
 
   void dump() {
     std::map<int,int>::iterator i;
+    for(i=csize.begin();i!=csize.end();i++) {
+      fprintf(stderr, "area %d: %d nodes\n", i->first, i->second);
+    }
     for(i=cedges.begin();i!=cedges.end();i++) {
-      fprintf(stderr, "area %d: %d vertices\n", i->first, i->second);
+      fprintf(stderr, "area %d: %d edges\n", i->first, i->second);
     }
     c.dump();
   }
@@ -400,7 +404,8 @@ int next_move_spacefill()
     int v = ca.connectedvalue(p) - 2*degree(p);
     if(v > bestv) { bestv = v; bestm = m; }
 #if VERBOSE >= 1
-    fprintf(stderr, "move %d: ca=%d, degree=%d, v=%d\n", m, ca.connectedvalue(p), degree(p), v);
+    fprintf(stderr, "move %d: edges=%d, nodes=%d, degree=%d, v=%d\n", m,
+            ca.connectedvalue(p), ca.connectedarea(p), degree(p), v);
 #endif
   }
 
