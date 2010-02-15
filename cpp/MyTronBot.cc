@@ -76,7 +76,7 @@ template <class T> struct Map {
     for(int j=0;j<height;j++) {
       for(int i=0;i<width;i++) {
         int n = map[i+j*width];
-        if(n == 0) fprintf(stderr, "  ");
+        if(n == 0 || n == INT_MAX) fprintf(stderr, "  ");
         else fprintf(stderr, "%2d", n);
       }
       fprintf(stderr, "\n");
@@ -361,14 +361,6 @@ void dijkstra(Map<int> &d, position s, Components &cp, int component)
         d(v) = alt;
     }
   }
-#if 1
-  // REMOVEME: cleanup for printing really
-  for(j=0;j<M.height;j++)
-    for(i=0;i<M.width;i++) {
-      if(d(i,j) == INT_MAX)
-        d(i,j) = 0;
-    }
-#endif
 }
 
 // }}}
@@ -501,11 +493,13 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
   }
 
   if(itr == 0) {
-    int v = _evaluate_board(s, player);
 #if VERBOSE >= 3
+    int v = _evaluate_board(s, player, true);
     fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d) -> %d\n", 
             itr, s.p[0].x, s.p[0].y, s.m[0], 
             s.p[1].x, s.p[1].y, s.m[1], player, a,b,v);
+#else
+    int v = _evaluate_board(s, player);
 #endif
     return v;
   }
