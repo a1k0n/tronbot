@@ -460,11 +460,10 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
   } else {
     // since each bot is in a separate component by definition here, it's OK to
     // destructively update cp for floodfill()
-    int v = 10000*(floodfill(cp, s.p[0]) -
-                   cp.connectedarea(s.p[1]));
+    int v = 1000*(floodfill(cp, s.p[0]) -
+                  floodfill(cp, s.p[1])); // assume everyone else's floodfill is as bad as ours?
+//                   cp.connectedarea(s.p[1]));
     if(player == 1) v = -v;
-//    int v = 100*(cp.connectedvalue(s.p[player]) -
-//                 cp.connectedvalue(s.p[player^1]));
 #if VERBOSE >= 2
     if(vis) {
       fprintf(stderr, "player=%d connectedarea value: %d\n", player, v);
