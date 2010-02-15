@@ -380,7 +380,7 @@ int floodfill(Components &ca, position s)
   for(int m=1;m<=4;m++) {
     position p = s.next(m);
     if(M(p)) continue;
-    int v = ca.connectedvalue(p) - degree(p);
+    int v = ca.connectedvalue(p) - 2*degree(p) - 4*_potential_articulation[neighbors(p)];
     if(v > bestv) { bestv = v; b = p; }
   }
   if(bestv == 0)
@@ -401,7 +401,7 @@ int next_move_spacefill()
   for(int m=1;m<=4;m++) {
     position p = curstate.p[0].next(m);
     if(M(p)) continue;
-    int v = ca.connectedvalue(p) - 2*degree(p);
+    int v = ca.connectedvalue(p) - 2*degree(p) - 4*_potential_articulation[neighbors(p)];
     if(v > bestv) { bestv = v; bestm = m; }
 #if VERBOSE >= 1
     fprintf(stderr, "move %d: edges=%d, nodes=%d, degree=%d, v=%d\n", m,
