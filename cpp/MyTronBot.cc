@@ -202,6 +202,8 @@ int neighbors(position s) {
           (M(s.x-1, s.y  )<<7));
 }
 
+int potential_articulation(position s) { return _potential_articulation[neighbors(s)]; }
+
 int turn(int d, int n) { return 1+(d-1+n)&3; }
 // }}}
 
@@ -252,7 +254,7 @@ struct Components {
 
   void remove(position s) {
     c(s) = 0;
-    if(_potential_articulation[neighbors(s)]) {
+    if(potential_articulation(s)) {
       recalc();
     } else {
       cedges[c(s)] -= 2*degree(s);
@@ -380,7 +382,7 @@ int floodfill(Components &ca, position s)
   for(int m=1;m<=4;m++) {
     position p = s.next(m);
     if(M(p)) continue;
-    int v = ca.connectedvalue(p) - 2*degree(p) - 4*_potential_articulation[neighbors(p)];
+    int v = ca.connectedvalue(p) - 2*degree(p) - 4*potential_articulation(p);
     if(v > bestv) { bestv = v; b = p; }
   }
   if(bestv == 0)
@@ -401,7 +403,7 @@ int next_move_spacefill()
   for(int m=1;m<=4;m++) {
     position p = curstate.p[0].next(m);
     if(M(p)) continue;
-    int v = ca.connectedvalue(p) - 2*degree(p) - 4*_potential_articulation[neighbors(p)];
+    int v = ca.connectedvalue(p) - 2*degree(p) - 4*potential_articulation(p);
     if(v > bestv) { bestv = v; bestm = m; }
 #if VERBOSE >= 1
     fprintf(stderr, "move %d: edges=%d, nodes=%d, degree=%d, v=%d\n", m,
@@ -441,11 +443,12 @@ int _evaluate_board(gamestate s, int player)
     int nodecount = 0;
     for(int j=0;j<M.height;j++)
       for(int i=0;i<M.width;i++) {
+        position p(i,j);
         int diff = dp0(i,j) - dp1(i,j);
         // if the opponent's distance is shorter than ours, then this is "their" node
-        if(diff>0) { nodecount -= degree(position(i,j)); }
+        if(diff>0) { nodecount -= degree(p) - 4*potential_articulation(p); }
         // otherwise it's ours
-        if(diff<0) { nodecount += degree(position(i,j)); }
+        if(diff<0) { nodecount += degree(p) - 4*potential_articulation(p); }
 #if VERBOSE >= 3
         vor(i,j) = diff > 0 ? 1 : diff < 0 ? 2 : 0;
 #endif
