@@ -12,7 +12,7 @@ test:: MyTronBot
 	java -jar engine/Tron.jar maps/keyhole.txt ./MyTronBot "java -jar example_bots/Chaser.jar" 0 2>&1
 
 submission: MyTronBot.cc
-	zip a1k0n.zip MyTronBot.cc
+	zip a1k0n.zip MyTronBot.cc artictbl.h
 
 testall:: MyTronBot
 	for i in maps/*.txt; do java -jar engine/Tron.jar $$i ./MyTronBot "java -jar example_bots/Chaser.jar" 0 2>&1; done

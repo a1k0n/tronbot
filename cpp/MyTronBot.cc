@@ -6,11 +6,13 @@
 #include <map>
 #include <vector>
 
+#include "artictbl.h"
+
 #define TIMEOUT_USEC 950000
 #define FIRSTMOVE_USEC 2950000
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
-#define DRAW_PENALTY -100
+#define DRAW_PENALTY 0
 #define VERBOSE 0
 
 // {{{ position
@@ -188,6 +190,18 @@ int degree(position x) {
   return 4 - M(x.next(1)) - M(x.next(2)) - M(x.next(3)) - M(x.next(4));
 }
 
+// return bitmask of neighbors, for table lookups
+int neighbors(position s) {
+  return (M(s.x-1, s.y-1) |
+          (M(s.x  , s.y-1)<<1) |
+          (M(s.x+1, s.y-1)<<2) |
+          (M(s.x+1, s.y  )<<3) |
+          (M(s.x+1, s.y+1)<<4) |
+          (M(s.x  , s.y+1)<<5) |
+          (M(s.x-1, s.y+1)<<6) |
+          (M(s.x-1, s.y  )<<7));
+}
+
 int turn(int d, int n) { return 1+(d-1+n)&3; }
 // }}}
 
@@ -197,14 +211,12 @@ struct Components {
   Map<int> c;
   std::map<int,int> csize;
 
-  Components(Map<char> &M, gamestate s): c(M.width, M.height)
-  {
-//    std::map<int,int> equiv;
+  Components(Map<char> &M): c(M.width, M.height) { recalc(); }
+
+  void recalc(void) {
     static std::vector<int> equiv;
     equiv.clear(); equiv.push_back(0);
     int nextclass = 1;
-    M(s.p[0]) = 0;
-    M(s.p[1]) = 0;
     for(int j=1;j<M.height-1;j++) {
       for(int i=1;i<M.width-1;i++) {
         if(M(i,j)) continue; // wall
@@ -227,8 +239,6 @@ struct Components {
         }
       }
     }
-    M(s.p[0]) = 1;
-    M(s.p[1]) = 1;
 #if 0
     dump();
     fprintf(stderr, "equivalences: ");
@@ -244,6 +254,18 @@ struct Components {
       }
     }
   }
+
+  void remove(position s) {
+    csize[c(s)] -= 2*degree(s);
+    if(_potential_articulation[neighbors(s)])
+      recalc();
+  }
+  void add(position s) {
+    csize[c(s)] += 2*degree(s);
+    if(_potential_articulation[neighbors(s)])
+      recalc();
+  }
+
   void dump() {
     std::map<int,int>::iterator i;
     for(i=csize.begin();i!=csize.end();i++) {
@@ -338,12 +360,61 @@ void dijkstra(Map<int> &d, position s, Components &cp, int component)
 
 // }}}
 
+// {{{ space-filling
+
+int floodfill(Components &ca, position s)
+{
+  // flood fill heuristic: choose to remove as few edges from the graph as
+  // possible (in other words, move onto the square with the lowest degree)
+  int bestv=0;
+  position b = s;
+  for(int m=1;m<=4;m++) {
+    position p = s.next(m);
+    if(M(p)) continue;
+    int v = ca.connectedvalue(p) - degree(p);
+    if(v > bestv) { bestv = v; b = p; }
+  }
+  if(bestv == 0)
+    return 0;
+  M(b) = 1; ca.remove(b);
+  int a = 1+floodfill(ca, b);
+  M(b) = 0; ca.add(b);
+  return a;
+}
+
+int next_move_spacefill()
+{
+  Components ca(M);
+
+  // flood fill heuristic: choose to remove as few edges from the graph as
+  // possible (in other words, move onto the square with the lowest degree)
+  int bestm=1, bestv=0;
+  for(int m=1;m<=4;m++) {
+    position p = curstate.p[0].next(m);
+    if(M(p)) continue;
+    int v = ca.connectedvalue(p) - 2*degree(p);
+    if(v > bestv) { bestv = v; bestm = m; }
+#if VERBOSE >= 1
+    fprintf(stderr, "move %d: ca=%d, degree=%d, v=%d\n", m, ca.connectedvalue(p), degree(p), v);
+#endif
+  }
+
+  return bestm;
+}
+// }}}
+
 // {{{ alpha-beta iterative deepening search
 
 static int evaluations=0;
 int _evaluate_board(gamestate s, int player)
 {
-  Components cp(M, s);
+  // remove players from the board when evaluating connected components,
+  // because if a player is separating components he still gets to choose which
+  // one to move into.
+  M(s.p[0]) = 0; M(s.p[1]) = 0;
+  Components cp(M); // pre-move components
+  M(s.p[0]) = 1; M(s.p[1]) = 1;
+
   evaluations++;
 #if VERBOSE >= 3
   fprintf(stderr, "evaluating board: \n");
@@ -377,8 +448,12 @@ int _evaluate_board(gamestate s, int player)
 #endif
     return nodecount;
   } else {
-    int v = 100*(cp.connectedvalue(s.p[player]) -
-                 cp.connectedvalue(s.p[player^1]));
+    // since each bot is in a separate component by definition here, it's OK to
+    // destructively update cp for floodfill()
+    int v = 100*(floodfill(cp, s.p[player]) -
+                 floodfill(cp, s.p[player^1]));
+//    int v = 100*(cp.connectedvalue(s.p[player]) -
+//                 cp.connectedvalue(s.p[player^1]));
 #if VERBOSE >= 3
     fprintf(stderr, "player=%d connectedarea value: %d\n", player, v);
 #endif
@@ -508,121 +583,8 @@ int next_move_alphabeta()
 }
 // }}}
 
-// {{{ space-filling
-
-// {{{ crappy greedy space filler that doesn't work as well as just wall-following
-struct SpaceFiller
-{
-  int area, move;
-
-  static SpaceFiller fill(position p, int max_area) {
-    SpaceFiller f;
-    f.area = _fill_area(f.move, p, max_area, 0);
-    return f;
-  }
-
-#if 0
-  static SpaceFiller greedy(position p) {
-    SpaceFiller f;
-    f.area = 0;
-    for(int m=1;m<=4;m++) {
-      int nm;
-      int a = _fill_greedy(nm, p, 1);
-      if(a > f.area) { f.area = a; f.move = nm; }
-    return f;
-  }
-#endif
-
-private:
-#if 0
-  int _fill_greedy(int &move, position p0, int majordir) {
-    // try to fill in row-major or column-major order, looking ahead one row
-    // (or column) for the largest opening
-
-  }
-  int _find_next_greedy(position p, int dir, int majordir) {
-    //  0123456789ab
-    //  >----------- ->    ##########...
-    //---   ------       ..... 1#####
-    // travel in dir, finding all 0->1 transitions in the next column over (by majordir)
-    // for each 0->1 transition, find the run length going -dir
-    // optimize for this_runlen + next_runlen
-    int ow = M(p.next(majordir));
-    int n = 0;
-    int besta=0, bestn=0;
-    while(!M(p.next(dir))) {
-      p = p.next(dir);
-      int nw = M(p.next(majordir));
-      if(nw && nw != ow) {
-        int a = n+runout(p.prev(dir).next(majordir), turn(dir, 2));
-        turnarounds.push_back(n);
-      }
-      n++;
-    }
-  }
-#endif
-
-  // this is exponential and sucks
-  static int _fill_area(int &move, position p0, int max_area, int lastmove) {
-//    printf("_fill_area([%d,%d], area=%d)\n", p0.x, p0.y, max_area);
-    if(max_area <= 1) { move = 0; return 1; }
-    int besta = 0, bestm = 0;
-    for(int m=1;m<=4;m++) {
-      int r = 0;
-      position p = p0;
-      if(m == lastmove) continue;
-      if(M(p.next(m))) continue;
-      while(!M(p)) { r++; M(p) = 1; p = p.next(m); } // do!
-      while(r>0) {
-        // undo! (we just ran into a wall, so undo that first...)
-        r--;
-        p = p.prev(m);
-        M(p) = 0;
-        if(r>0) {
-          // now try longest to shortest...
-          int _m;
-//          printf("%d: ", m);
-          int a = r + _fill_area(_m, p, max_area - r, m);
-          if(a >= max_area) { move = m; return a; }
-          if(a > besta) { besta = a; bestm = m; }
-        }
-      }
-    }
-    move = bestm;
-    return besta;
-  }
-};
-// }}}
-
-const int degreescore[] = {0, 4, 3, 2, 1};
-int next_move_spacefill()
-{
-  gamestate nullstate;
-  nullstate.p[0] = nullstate.p[1] = position(0,0);
-  Components ca(M, nullstate);
-
-  int bestm=1, bestv=0;
-  for(int m=1;m<=4;m++) {
-    position p = curstate.p[0].next(m);
-    if(M(p)) continue;
-    int v = ca.connectedvalue(p) + degreescore[degree(p)];
-    if(v > bestv) { bestv = v; bestm = m; }
-#if VERBOSE >= 1
-    fprintf(stderr, "move %d: ca=%d, degree=%d, v=%d\n", m, ca.connectedvalue(p), degree(p), v);
-#endif
-  }
-
-
-//  SpaceFiller s(curstate.p[0], c.connectedvalue(curstate.p[0])/2);
-//  return SpaceFiller::greedy(curstate.p[0]).move;
-  return bestm;
-}
-// }}}
-
 int next_move() {
-  gamestate nullstate;
-  nullstate.p[0] = nullstate.p[1] = position(0,0);
-  Components cp(M, nullstate);
+  Components cp(M);
 #if VERBOSE >= 3
   cp.dump();
 #endif
