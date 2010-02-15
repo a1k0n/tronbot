@@ -340,9 +340,11 @@ void dijkstra(Map<int> &d, position s, Components &cp, int component)
   for(j=0;j<M.height;j++)
     for(i=0;i<M.width;i++) {
       if(cp.c(i,j) != component) continue;
+      if(M(i,j)) continue; // the player and his opponent are considered walls here
       Q.push_back(position(i,j));
       d(i,j) = INT_MAX;
     }
+  Q.push_back(s);
   d(s) = 0;
   while(!Q.empty()) {
     position u(0,0);
@@ -415,8 +417,7 @@ int next_move_spacefill()
 }
 // }}}
 
-// {{{ alpha-beta iterative deepening search
-
+// {{{ heuristic board evaluation
 static int evaluations=0;
 int _evaluate_board(gamestate s, int player)
 {
@@ -446,9 +447,9 @@ int _evaluate_board(gamestate s, int player)
         position p(i,j);
         int diff = dp0(i,j) - dp1(i,j);
         // if the opponent's distance is shorter than ours, then this is "their" node
-        if(diff>0) { nodecount -= degree(p) - potential_articulation(p); }
+        if(diff>0) { nodecount -= degree(p); } // - potential_articulation(p); }
         // otherwise it's ours
-        if(diff<0) { nodecount += degree(p) - potential_articulation(p); }
+        if(diff<0) { nodecount += degree(p); } // - potential_articulation(p); }
 #if VERBOSE >= 3
         vor(i,j) = diff > 0 ? 1 : diff < 0 ? 2 : 0;
 #endif
@@ -474,6 +475,9 @@ int _evaluate_board(gamestate s, int player)
     return v;
   }
 }
+// }}}
+
+// {{{ alpha-beta iterative deepening search
 
 // do an iterative-deepening search on all moves and see if we can find a move
 // sequence that cuts off our opponent
