@@ -12,7 +12,7 @@
 #define FIRSTMOVE_USEC 2950000
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
-#define DRAW_PENALTY 0 // -500
+#define DRAW_PENALTY (M.width*M.height-_maxitr+itr) // -500
 #define VERBOSE 0
 
 // {{{ position
@@ -462,8 +462,8 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
   } else {
     // since each bot is in a separate component by definition here, it's OK to
     // destructively update cp for floodfill()
-    int v = 1000*(floodfill(cp, s.p[0]) -
-                  floodfill(cp, s.p[1])); // assume everyone else's floodfill is as bad as ours?
+    int v = 10000*(floodfill(cp, s.p[0]) -
+                   floodfill(cp, s.p[1])); // assume everyone else's floodfill is as bad as ours?
 //                   cp.connectedarea(s.p[1]));
     if(player == 1) v = -v;
 #if VERBOSE >= 2
@@ -484,7 +484,19 @@ static char _killer[DEPTH_MAX*2];
 static int _maxitr=0;
 int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 {
-  if(s.p[0] == s.p[1]) { return (player == 1 ? -1 : 1) * DRAW_PENALTY; } // crash!  draw!
+  // base cases: no more moves?  draws?
+  if(s.p[0] == s.p[1]) { return (player == 1 ? 1 : -1) * DRAW_PENALTY; } // crash!  draw!
+  if(degree(s.p[player]) == 0) {
+    if(degree(s.p[player^1]) == 0) { // both boxed in; draw
+      return (player == 1 ? 1 : -1) * DRAW_PENALTY;
+    }
+    return -1000000;
+  }
+  if(degree(s.p[player^1]) == 0) {
+    // choose any move
+    for(int m=1;m<=4;m++) if(!M(s.p[player].next(m))) break;
+    return 1000000;
+  }
 
   if(_timed_out || ((_ab_runs++)&127) == 0 && timeout()) {
 #if VERBOSE >= 1
@@ -493,6 +505,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     return a;
   }
 
+  // last iteration?
   if(itr == 0) {
 #if VERBOSE >= 3
     int v = _evaluate_board(s, player, true);
