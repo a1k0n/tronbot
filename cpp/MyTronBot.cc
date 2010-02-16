@@ -458,12 +458,12 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
       fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
     }
 #endif
-    return nodecount;
+    return 10*nodecount;
   } else {
     // since each bot is in a separate component by definition here, it's OK to
     // destructively update cp for floodfill()
-    int v = 10000*(floodfill(cp, s.p[0]) -
-                   floodfill(cp, s.p[1])); // assume everyone else's floodfill is as bad as ours?
+    int v = 1000000*(floodfill(cp, s.p[0]) -
+                     floodfill(cp, s.p[1])); // assume everyone else's floodfill is as bad as ours?
 //                   cp.connectedarea(s.p[1]));
     if(player == 1) v = -v;
 #if VERBOSE >= 2
@@ -490,12 +490,12 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     if(degree(s.p[player^1]) == 0) { // both boxed in; draw
       return (player == 1 ? 1 : -1) * DRAW_PENALTY;
     }
-    return -1000000;
+    return -INT_MAX;
   }
   if(degree(s.p[player^1]) == 0) {
     // choose any move
     for(int m=1;m<=4;m++) if(!M(s.p[player].next(m))) break;
-    return 1000000;
+    return INT_MAX;
   }
 
   if(_timed_out || ((_ab_runs++)&127) == 0 && timeout()) {
@@ -557,7 +557,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     }
 
     if(_timed_out) // a_ is garbage if we timed out
-      return -10000000;
+      return -INT_MAX;
 
     if(a >= b) // beta cut-off
       break;
@@ -569,14 +569,14 @@ static bool firstmove = true;
 int next_move_alphabeta()
 {
   int itr;
-  int lastv = -1000000, lastm = 1;
+  int lastv = -INT_MAX, lastm = 1;
   reset_timer(firstmove ? FIRSTMOVE_USEC : TIMEOUT_USEC);
   firstmove=false;
   evaluations=0;
   for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !timeout();itr++) {
     int m;
     _maxitr = itr*2;
-    int v = _alphabeta(m, curstate, 0, -10000000, 10000000, itr*2);
+    int v = _alphabeta(m, curstate, 0, -INT_MAX, INT_MAX, itr*2);
 #if 0
     if(v >= 5000) {
 #if VERBOSE >= 1
@@ -593,9 +593,9 @@ int next_move_alphabeta()
     //M.dump();
     fprintf(stderr, "%d.%06d: v=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, m, itr*2, _ab_runs);
 #endif
-    if(v == 10000000) // our opponent cannot move, so we win
+    if(v == INT_MAX) // our opponent cannot move, so we win
       return m;
-    if(v == -10000000) {
+    if(v == -INT_MAX) {
       // deeper searching is apparently impossible (either because there are no
       // more moves for us or because we don't have any search time left)
       break;
