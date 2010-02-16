@@ -12,7 +12,7 @@
 #define FIRSTMOVE_USEC 2950000
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
-#define DRAW_PENALTY (M.width*M.height-_maxitr+itr) // -500
+#define DRAW_PENALTY (10*itr) // -500
 #define VERBOSE 0
 
 // {{{ position
@@ -458,7 +458,7 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
       fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
     }
 #endif
-    return 10*nodecount;
+    return nodecount;
   } else {
     // since each bot is in a separate component by definition here, it's OK to
     // destructively update cp for floodfill()
