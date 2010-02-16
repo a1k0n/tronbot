@@ -376,7 +376,8 @@ int floodfill(Components &ca, position s)
   for(int m=1;m<=4;m++) {
     position p = s.next(m);
     if(M(p)) continue;
-    int v = ca.connectedvalue(p) - 2*degree(p) - 4*potential_articulation(p);
+    int v = ca.connectedvalue(p) + ca.connectedarea(p) - 1 - 2*degree(p) -
+      4*potential_articulation(p);
     if(v > bestv) { bestv = v; b = p; }
   }
   if(bestv == 0)
@@ -397,7 +398,8 @@ int next_move_spacefill()
   for(int m=1;m<=4;m++) {
     position p = curstate.p[0].next(m);
     if(M(p)) continue;
-    int v = ca.connectedvalue(p) - 2*degree(p) - 4*potential_articulation(p);
+    int v = ca.connectedvalue(p) + ca.connectedarea(p) - 1 - 2*degree(p) -
+      4*potential_articulation(p);
     if(v > bestv) { bestv = v; bestm = m; }
 #if VERBOSE >= 1
     fprintf(stderr, "move %d: edges=%d, nodes=%d, degree=%d, v=%d\n", m,
@@ -494,8 +496,8 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
   if(itr == 0) {
 #if VERBOSE >= 3
     int v = _evaluate_board(s, player, true);
-    fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d) -> %d\n", 
-            itr, s.p[0].x, s.p[0].y, s.m[0], 
+    fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d) -> %d\n",
+            itr, s.p[0].x, s.p[0].y, s.m[0],
             s.p[1].x, s.p[1].y, s.m[1], player, a,b,v);
 #else
     int v = _evaluate_board(s, player);
@@ -503,8 +505,8 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     return v;
   }
 #if VERBOSE >= 3
-  fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d)\n", 
-          itr, s.p[0].x, s.p[0].y, s.m[0], 
+  fprintf(stderr, "_alphabeta(itr=%d [%d,%d,%d]|[%d,%d,%d] p=%d a=%d b=%d)\n",
+          itr, s.p[0].x, s.p[0].y, s.m[0],
           s.p[1].x, s.p[1].y, s.m[1], player, a,b);
 #endif
 
