@@ -12,7 +12,7 @@
 #define FIRSTMOVE_USEC 2950000
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
-#define DRAW_PENALTY (10*itr) // -500
+#define DRAW_PENALTY 0 // (10*itr) // -500
 #define VERBOSE 0
 
 // {{{ position
@@ -111,6 +111,9 @@ struct gamestate {
 static Map<char> M;
 static Map<int> dp0, dp1;
 static gamestate curstate;
+static char _killer[DEPTH_MAX*2];
+static int _maxitr=0;
+static bool firstmove = true;
 
 // {{{ imported map update garbage from original code
 bool map_update()
@@ -388,25 +391,58 @@ int floodfill(Components &ca, position s)
   return a;
 }
 
-int next_move_spacefill()
-{
-  Components ca(M);
-
-  // flood fill heuristic: choose to remove as few edges from the graph as
-  // possible (in other words, move onto the square with the lowest degree)
-  int bestm=1, bestv=0;
-  for(int m=1;m<=4;m++) {
-    position p = curstate.p[0].next(m);
-    if(M(p)) continue;
-    int v = ca.connectedvalue(p) + ca.connectedarea(p) - 1 - 2*degree(p) -
-      4*potential_articulation(p);
-    if(v > bestv) { bestv = v; bestm = m; }
-#if VERBOSE >= 1
-    fprintf(stderr, "move %d: edges=%d, nodes=%d, degree=%d, v=%d\n", m,
-            ca.connectedvalue(p), ca.connectedarea(p), degree(p), v);
-#endif
+// returns spaces unused (wasted); idea is to minimize waste
+int _spacefill_runs=0;
+int _spacefill(int &move, Components &ca, position p, int spacesleft, int itr) {
+  int bestv = spacesleft;
+  if(spacesleft == 0)
+    return 0;
+  if(degree(p) == 0)
+    return spacesleft;
+  if(_timed_out || ((_spacefill_runs++)&127) == 0 && timeout()) {
+    return spacesleft;
   }
+  if(itr == 0)
+    return spacesleft - floodfill(ca, p);
+  int kill = _killer[_maxitr-itr];
+  for(int _m=0;_m<=4 && !_timed_out;_m++) {
+    // convoluted logic: do "killer heuristic" move first
+    if(_m == kill) continue;
+    int m = _m == 0 ? kill : _m;
+    position r = p.next(m);
+    if(M(r))
+      continue;
+    M(r) = 1; ca.remove(r);
+    int _m, v = _spacefill(_m, ca, r, spacesleft-1, itr-1);
+    M(r) = 0; ca.add(r);
+    if(v < bestv) { bestv = v; move = m; }
+    if(v <= 0) break; // we solved it!
+  }
+  return bestv;
+}
 
+// space-filling iterative deepening search
+int next_move_spacefill(Components &ca)
+{
+  int itr;
+  int area = ca.connectedarea(curstate.p[0]);
+  int bestv = area, bestm = 1;
+  reset_timer(firstmove ? FIRSTMOVE_USEC : TIMEOUT_USEC);
+  firstmove=false;
+  for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !timeout();itr++) {
+    int m;
+    _maxitr = itr;
+    int v = _spacefill(m, ca, curstate.p[0], area, itr);
+    if(v < bestv) { bestv = v; bestm = m; }
+#if VERBOSE >= 1
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    //M.dump();
+    fprintf(stderr, "%d.%06d: area=%d/%d (m=%d) @depth %d _spacefill_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, area-v, area, m, itr, _spacefill_runs);
+#endif
+    if(v <= 0) break; // solved!
+  }
+  memmove(_killer, _killer+1, sizeof(_killer)-1); // shift our best-move tree forward to accelerate next move's search
   return bestm;
 }
 // }}}
@@ -462,8 +498,8 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
   } else {
     // since each bot is in a separate component by definition here, it's OK to
     // destructively update cp for floodfill()
-    int v = 1000000*(floodfill(cp, s.p[0]) -
-                     floodfill(cp, s.p[1])); // assume everyone else's floodfill is as bad as ours?
+    int v = 1000*(floodfill(cp, s.p[0]) -
+                  floodfill(cp, s.p[1])); // assume everyone else's floodfill is as bad as ours?
 //                   cp.connectedarea(s.p[1]));
     if(player == 1) v = -v;
 #if VERBOSE >= 2
@@ -480,8 +516,6 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
 
 // do an iterative-deepening search on all moves and see if we can find a move
 // sequence that cuts off our opponent
-static char _killer[DEPTH_MAX*2];
-static int _maxitr=0;
 int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 {
   // base cases: no more moves?  draws?
@@ -565,7 +599,6 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
   return a;
 }
 
-static bool firstmove = true;
 int next_move_alphabeta()
 {
   int itr;
@@ -611,6 +644,7 @@ int next_move_alphabeta()
     fprintf(stderr, "10%% timeout violation: %ld us\n", e);
   }
 #endif
+  memmove(_killer, _killer+2, sizeof(_killer)-2); // shift our best-move tree forward to accelerate next move's search
   return lastm;
 }
 // }}}
@@ -635,7 +669,7 @@ int next_move() {
   } else {
     // endgame: use up space as efficiently as we can, and hope we have more
     // left than they do.
-    return next_move_spacefill();
+    return next_move_spacefill(cp);
   }
 }
 
