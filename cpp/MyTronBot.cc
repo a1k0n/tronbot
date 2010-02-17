@@ -6,6 +6,7 @@
 #include <assert.h>
 #include <map>
 #include <vector>
+#include <set>
 
 #include "artictbl.h"
 
@@ -14,7 +15,7 @@
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
 #define DRAW_PENALTY 0 // (10*itr) // -500
-#define VERBOSE 0
+#define VERBOSE 1
 
 // {{{ position
 struct position {
@@ -32,6 +33,7 @@ struct position {
 };
 
 bool operator==(const position &a, const position &b) { return a.x == b.x && a.y == b.y; }
+bool operator<(const position &a, const position &b) { return a.x == b.x ? a.y < b.y : a.x < b.x; }
 
 // note: the canonical order (above) is changed internally here in order to
 // attain more symmetric play; this is mainly a failing of the evaluation
@@ -339,31 +341,35 @@ bool timeout() { _timed_out = elapsed_time() > _timeout; return _timed_out; }
 // {{{ Dijkstra's
 void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
 {
-  static std::vector<position> Q;
+  static std::vector<std::set<position> > Q;
+  size_t min_dist=0;
   int i,j;
   for(j=0;j<M.height;j++)
-    for(i=0;i<M.width;i++) {
+    for(i=0;i<M.width;i++)
       d(i,j) = INT_MAX;
-      if(cp.c(i,j) != component) continue;
-      if(M(i,j)) continue; // the player and his opponent are considered walls here
-      Q.push_back(position(i,j));
-    }
-  Q.push_back(s);
+
+  Q.clear(); Q.push_back(std::set<position>());
+  Q[0].insert(s);
   d(s) = 0;
-  while(!Q.empty()) {
-    position u(0,0);
-    int min_d = INT_MAX, min_i=0;
-    for(i=0;i<(int)Q.size();i++)
-      if(d(Q[i]) < min_d) { u = Q[i]; min_d = d(u); min_i = i; }
-    Q[min_i] = Q[Q.size()-1]; Q.pop_back();
-    if(min_d == INT_MAX) continue; // ??
+  while(min_dist != Q.size()) {
+    position u = *(Q[min_dist].begin());
+    Q[min_dist].erase(Q[min_dist].begin());
     for(int m=1;m<=4;m++) {
       position v = u.next(m);
       if(M(v)) continue;
       int alt = 1 + d(u);
-      if(alt < d(v))
+      if(d(v) == INT_MAX) {
+        while(alt >= (int)Q.size())
+          Q.push_back(std::set<position>());
+        Q[alt].insert(v);
         d(v) = alt;
+      } else if(alt < d(v)) {
+        Q[d(v)].erase(v);
+        d(v) = alt;
+        Q[alt].insert(v);
+      }
     }
+    while(min_dist < Q.size() && Q[min_dist].empty()) min_dist++;
   }
 }
 
