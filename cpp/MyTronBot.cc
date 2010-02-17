@@ -455,9 +455,9 @@ int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
       position p(i,j);
       int diff = dp0(i,j) - dp1(i,j);
       // if the opponent's distance is shorter than ours, then this is "their" node
-      if(diff>0) { nodecount -= degree(p) - potential_articulation(p); }
+      if(diff>0) { nodecount -= 51 + 170*degree(p) + 8*potential_articulation(p); }
       // otherwise it's ours
-      if(diff<0) { nodecount += degree(p) - potential_articulation(p); }
+      if(diff<0) { nodecount += 51 + 170*degree(p) + 8*potential_articulation(p); }
     }
 #if VERBOSE >= 2
   if(vis) {

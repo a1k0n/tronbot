@@ -6,15 +6,31 @@ my $ua = LWP::UserAgent->new;
 $ua->timeout(10);
 
 if(!defined $ARGV[0]) {
-  die "usage: $0 <game_id>";
+  die "usage: $0 <game_id> [swap players?] [reverse time?]";
 }
 
-my $flip = $ARGV[1];
-my $timeorder = $ARGV[2];
+my ($gameid, $flip, $timeorder) = @ARGV;
 
-my $response = $ua->get("http://csclub.uwaterloo.ca/contest/generate_game_summary.php?game_id=$ARGV[0]");
+sub get_game {
+  my ($gameid) = @_;
+  my $game;
+  if(-e "gamecache/$gameid") {
+    local $/=0;
+    open GAME, "<gamecache/$gameid";
+    $game = <GAME>;
+    close GAME;
+  } else {
+    my $response = $ua->get("http://csclub.uwaterloo.ca/contest/generate_game_summary.php?game_id=$gameid");
+    open GAME, ">gamecache/$gameid";
+    print GAME $response->content;
+    $game = $response->content;
+    close GAME;
+  }
 
-my ($ok,$mapsize,$map,$p1,$p2,$moves,$ok2) = split(/\|/, $response->content);
+  return split(/\|/, $game);
+}
+
+my ($ok,$mapsize,$map,$p1,$p2,$moves,$ok2) = get_game($gameid);
 my @moves = split(//, $moves);
 
 my ($w,$h) = split(/\s+/, $mapsize);
