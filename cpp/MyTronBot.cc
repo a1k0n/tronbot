@@ -6,7 +6,6 @@
 #include <assert.h>
 #include <map>
 #include <vector>
-#include <set>
 
 #include "artictbl.h"
 
@@ -341,16 +340,19 @@ bool timeout() { _timed_out = elapsed_time() > _timeout; return _timed_out; }
 // {{{ Dijkstra's
 void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
 {
-  static std::vector<std::set<position> > Q;
+  static std::vector<std::vector<position> > Q;
+  static Map<int> loc;
   size_t min_dist=0;
   int i,j;
   for(j=0;j<M.height;j++)
     for(i=0;i<M.width;i++)
       d(i,j) = INT_MAX;
+  if(!loc.map) loc.resize(d.width, d.height);
 
-  Q.clear(); Q.push_back(std::set<position>());
-  Q[0].insert(s);
+  Q.clear(); Q.push_back(std::vector<position>());
+  Q[0].push_back(s);
   d(s) = 0;
+  loc(s) = 0;
   while(min_dist != Q.size()) {
     position u = *(Q[min_dist].begin());
     Q[min_dist].erase(Q[min_dist].begin());
@@ -358,15 +360,24 @@ void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
       position v = u.next(m);
       if(M(v)) continue;
       int alt = 1 + d(u);
-      if(d(v) == INT_MAX) {
+      int dist = d(v);
+      if(dist == INT_MAX) {
         while(alt >= (int)Q.size())
-          Q.push_back(std::set<position>());
-        Q[alt].insert(v);
+          Q.push_back(std::vector<position>());
+        int newloc = Q[alt].size();
+        Q[alt].push_back(v);
         d(v) = alt;
-      } else if(alt < d(v)) {
-        Q[d(v)].erase(v);
+        loc(v) = newloc;
+      } else if(alt < dist) {
+        // move last element to this one's spot in the pqueue
+        int moveelem = Q[dist].size()-1;
+        Q[dist][loc(v)] = Q[dist][moveelem];
+        loc(Q[dist][moveelem]) = loc(v);
+        Q[dist].pop_back();
+
         d(v) = alt;
-        Q[alt].insert(v);
+        loc(v) = Q[alt].size()-1;
+        Q[alt].push_back(v);
       }
     }
     while(min_dist < Q.size() && Q[min_dist].empty()) min_dist++;
