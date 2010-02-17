@@ -463,7 +463,7 @@ int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
   if(vis) {
     dp0.dump();
     dp1.dump();
-    fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
+    fprintf(stderr, "nodecount: %d\n", nodecount);
   }
 #endif
   return nodecount;
@@ -502,8 +502,8 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
 
   // since each bot is in a separate component by definition here, it's OK to
   // destructively update cp for floodfill()
-  int v = 1000*(floodfill(cp, s.p[0], false) -
-                floodfill(cp, s.p[1], false)); // assume everyone else's floodfill is as bad as ours?
+  int v = 10000*(floodfill(cp, s.p[0], false) -
+                 floodfill(cp, s.p[1], false)); // assume everyone else's floodfill is as bad as ours?
 //                   cp.connectedarea(s.p[1]));
   if(player == 1) v = -v;
 #if VERBOSE >= 2
