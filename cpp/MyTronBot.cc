@@ -14,7 +14,7 @@
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
 #define DRAW_PENALTY 0 // (10*itr) // -500
-#define VERBOSE 1
+#define VERBOSE 0
 
 // {{{ position
 struct position {
@@ -519,8 +519,8 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
 
   // since each bot is in a separate component by definition here, it's OK to
   // destructively update cp for floodfill()
-  int v = 10000*(floodfill(cp, s.p[0], false) -
-                 floodfill(cp, s.p[1], false)); // assume everyone else's floodfill is as bad as ours?
+  int v = 1000*(floodfill(cp, s.p[0], false) -
+                floodfill(cp, s.p[1], false)); // assume everyone else's floodfill is as bad as ours?
 //                   cp.connectedarea(s.p[1]));
   if(player == 1) v = -v;
 #if VERBOSE >= 2
