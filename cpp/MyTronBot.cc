@@ -3,6 +3,7 @@
 #include <string.h>
 #include <sys/time.h>
 #include <limits.h>
+#include <assert.h>
 #include <map>
 #include <vector>
 
@@ -336,7 +337,7 @@ bool timeout() { _timed_out = elapsed_time() > _timeout; return _timed_out; }
 // }}}
 
 // {{{ Dijkstra's
-void dijkstra(Map<int> &d, position s, Components &cp, int component)
+void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
 {
   static std::vector<position> Q;
   int i,j;
@@ -370,7 +371,7 @@ void dijkstra(Map<int> &d, position s, Components &cp, int component)
 
 // {{{ space-filling
 
-int floodfill(Components &ca, position s)
+int floodfill(Components &ca, position s, bool fixup=true)
 {
   // flood fill heuristic: choose to remove as few edges from the graph as
   // possible (in other words, move onto the square with the lowest degree)
@@ -387,36 +388,30 @@ int floodfill(Components &ca, position s)
     return 0;
   M(b) = 1; ca.remove(b);
   int a = 1+floodfill(ca, b);
-  M(b) = 0; ca.add(b);
+  M(b) = 0; if(fixup) ca.add(b);
   return a;
 }
 
 // returns spaces unused (wasted); idea is to minimize waste
 int _spacefill_runs=0;
-int _spacefill(int &move, Components &ca, position p, int spacesleft, int itr) {
-  int bestv = spacesleft;
-  if(spacesleft == 0)
+int _spacefill(int &move, Components &ca, position p, int itr) {
+  int bestv = 0;
+  int spacesleft = ca.connectedarea(p);
+  if(degree(p) == 0) { move=1; return 0; }
+  if(_timed_out || ((_spacefill_runs++)&63) == 0 && timeout()) {
     return 0;
-  if(degree(p) == 0)
-    return spacesleft;
-  if(_timed_out || ((_spacefill_runs++)&127) == 0 && timeout()) {
-    return spacesleft;
   }
   if(itr == 0)
-    return spacesleft - floodfill(ca, p);
-  int kill = _killer[_maxitr-itr];
-  for(int _m=0;_m<=4 && !_timed_out;_m++) {
-    // convoluted logic: do "killer heuristic" move first
-    if(_m == kill) continue;
-    int m = _m == 0 ? kill : _m;
+    return floodfill(ca, p);
+  for(int m=1;m<=4 && !_timed_out;m++) {
     position r = p.next(m);
-    if(M(r))
-      continue;
+    if(M(r)) continue;
     M(r) = 1; ca.remove(r);
-    int _m, v = _spacefill(_m, ca, r, spacesleft-1, itr-1);
+    int _m, v = 1+_spacefill(_m, ca, r, itr-1);
     M(r) = 0; ca.add(r);
-    if(v < bestv) { bestv = v; move = m; }
-    if(v <= 0) break; // we solved it!
+    if(v > bestv) { bestv = v; move = m; }
+    if(v == spacesleft) break; // we solved it!
+    if(itr == 0) break; // we can only use the first-chosen solution
   }
   return bestv;
 }
@@ -426,31 +421,59 @@ int next_move_spacefill(Components &ca)
 {
   int itr;
   int area = ca.connectedarea(curstate.p[0]);
-  int bestv = area, bestm = 1;
+  int bestv = 0, bestm = 1;
   reset_timer(firstmove ? FIRSTMOVE_USEC : TIMEOUT_USEC);
   firstmove=false;
   for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !timeout();itr++) {
     int m;
     _maxitr = itr;
-    int v = _spacefill(m, ca, curstate.p[0], area, itr);
-    if(v < bestv) { bestv = v; bestm = m; }
+    int v = _spacefill(m, ca, curstate.p[0], itr);
+    if(v > bestv) { bestv = v; bestm = m; }
+    if(v <= itr) break; // we can't possibly search any deeper
 #if VERBOSE >= 1
     struct timeval tv;
     gettimeofday(&tv, NULL);
     //M.dump();
-    fprintf(stderr, "%d.%06d: area=%d/%d (m=%d) @depth %d _spacefill_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, area-v, area, m, itr, _spacefill_runs);
+    fprintf(stderr, "%d.%06d: area=%d/%d waste=%d (m=%d) @depth %d _spacefill_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, area, area-v, m, itr, _spacefill_runs);
 #endif
-    if(v <= 0) break; // solved!
+    if(v >= area) break; // solved!
   }
-  memmove(_killer, _killer+1, sizeof(_killer)-1); // shift our best-move tree forward to accelerate next move's search
+  fprintf(stderr, "moving %d\n", bestm);
   return bestm;
 }
 // }}}
 
 // {{{ heuristic board evaluation
+
+int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
+{
+  dijkstra(dp0, s.p[0], cp, comp);
+  dijkstra(dp1, s.p[1], cp, comp);
+  int nodecount = 0;
+  for(int j=0;j<M.height;j++)
+    for(int i=0;i<M.width;i++) {
+      position p(i,j);
+      int diff = dp0(i,j) - dp1(i,j);
+      // if the opponent's distance is shorter than ours, then this is "their" node
+      if(diff>0) { nodecount -= degree(p) - potential_articulation(p); }
+      // otherwise it's ours
+      if(diff<0) { nodecount += degree(p) - potential_articulation(p); }
+    }
+#if VERBOSE >= 2
+  if(vis) {
+    dp0.dump();
+    dp1.dump();
+    fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
+  }
+#endif
+  return nodecount;
+}
+
 static int evaluations=0;
 int _evaluate_board(gamestate s, int player, bool vis=false)
 {
+  assert(player == 0); // we're always searching an even number of plies
+
   // remove players from the board when evaluating connected components,
   // because if a player is separating components he still gets to choose which
   // one to move into.
@@ -458,57 +481,37 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
   Components cp(M); // pre-move components
   M(s.p[0]) = 1; M(s.p[1]) = 1;
 
+  if(s.p[0] == s.p[1])
+    return 0; // crash!
+
   evaluations++;
 #if VERBOSE >= 2
   if(vis) {
     fprintf(stderr, "evaluating board: \n");
-    M(s.p[player]) = 2; M(s.p[player^1]) = 3; M.dump();
+    M(s.p[0]) = 2; M(s.p[1]) = 3; M.dump();
     M(s.p[0]) = 1; M(s.p[1]) = 1;
   }
 #endif
   int comp;
+  // greedily follow the maximum territory gain strategy until we partition
+  // space or crash
   if((comp = cp.component(s.p[0])) == cp.component(s.p[1])) {
-    dijkstra(dp0, s.p[player], cp, comp);
-    dijkstra(dp1, s.p[player^1], cp, comp);
-#if VERBOSE >= 2
-    Map<int> vor(M.width, M.height);
-#endif
-    int nodecount = 0;
-    for(int j=0;j<M.height;j++)
-      for(int i=0;i<M.width;i++) {
-        position p(i,j);
-        int diff = dp0(i,j) - dp1(i,j);
-        // if the opponent's distance is shorter than ours, then this is "their" node
-        if(diff>0) { nodecount -= degree(p) - potential_articulation(p); }
-        // otherwise it's ours
-        if(diff<0) { nodecount += degree(p) - potential_articulation(p); }
-#if VERBOSE >= 2
-        vor(i,j) = diff > 0 ? 2 : diff < 0 ? 1 : 0;
-#endif
-      }
-#if VERBOSE >= 2
-    if(vis) {
-      dp0.dump();
-      dp1.dump();
-      vor.dump();
-      fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
-    }
-#endif
-    return nodecount;
-  } else {
-    // since each bot is in a separate component by definition here, it's OK to
-    // destructively update cp for floodfill()
-    int v = 1000*(floodfill(cp, s.p[0]) -
-                  floodfill(cp, s.p[1])); // assume everyone else's floodfill is as bad as ours?
-//                   cp.connectedarea(s.p[1]));
-    if(player == 1) v = -v;
-#if VERBOSE >= 2
-    if(vis) {
-      fprintf(stderr, "player=%d connectedarea value: %d\n", player, v);
-    }
-#endif
+    int v = _evaluate_territory(s, cp, comp, vis);
     return v;
   }
+
+  // since each bot is in a separate component by definition here, it's OK to
+  // destructively update cp for floodfill()
+  int v = 1000*(floodfill(cp, s.p[0], false) -
+                floodfill(cp, s.p[1], false)); // assume everyone else's floodfill is as bad as ours?
+//                   cp.connectedarea(s.p[1]));
+  if(player == 1) v = -v;
+#if VERBOSE >= 2
+  if(vis) {
+    fprintf(stderr, "player=%d connectedarea value: %d\n", player, v);
+  }
+#endif
+  return v;
 }
 // }}}
 
@@ -532,7 +535,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     return INT_MAX;
   }
 
-  if(_timed_out || ((_ab_runs++)&127) == 0 && timeout()) {
+  if(_timed_out || ((_ab_runs++)&31) == 0 && timeout()) {
 #if VERBOSE >= 1
     fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
 #endif
