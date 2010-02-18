@@ -367,6 +367,25 @@ void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
   }
 }
 
+// return number of edge-independent paths from source to sink
+// uses dijkstra's output to compute it
+int num_paths(Map<int> &_n, Map<int> &d, const position &s, const position &sink)
+{
+  if(_n(s)) return _n(s);
+  int cur = d(s);
+  int n = 0;
+  for(int m=1;m<=4;m++) {
+    position t = s.next(m);
+    if(t == sink) { n++; continue; }
+    if(M(t)) continue;
+    if(d(t) <= cur) continue; // must be strictly increasing distance from source
+    n += num_paths(_n, d, t, sink);
+  }
+  _n(s) = n;
+  return n;
+}
+
+
 // }}}
 
 // {{{ space-filling
@@ -454,7 +473,6 @@ int _evaluate_territory(int *indicators, const gamestate &s, Components &cp, int
   indicators[6] = INT_MAX;
   indicators[7] = INT_MAX;
   for(int m=1;m<=4;m++) { int d = dp0(s.p[1].next(m)); if(d < indicators[6]) indicators[6] = d+1; }
-  for(int m=1;m<=4;m++) { int d = dp1(s.p[0].next(m)); if(d < indicators[7]) indicators[7] = d+1; }
   for(int j=0;j<M.height;j++)
     for(int i=0;i<M.width;i++) {
       position p(i,j);
@@ -481,6 +499,8 @@ int _evaluate_territory(int *indicators, const gamestate &s, Components &cp, int
     fprintf(stderr, "player=%d nodecount: %d\n", player, nodecount);
   }
 #endif
+  Map<int> n(M.width, M.height);
+  indicators[7] = num_paths(n, dp0, s.p[0], s.p[1]);
   return nodecount;
 }
 
