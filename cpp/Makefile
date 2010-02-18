@@ -1,4 +1,4 @@
-CXXFLAGS = -g -O2 -Wall
+CXXFLAGS = -g -O3 -Wall
 
 OBJS = MyTronBot.o
 
@@ -9,7 +9,7 @@ clean::
 	rm -f $(OBJS) MyTronBot a1k0n.zip
 
 test:: MyTronBot
-	java -jar engine/Tron.jar maps/keyhole.txt ./MyTronBot "java -jar example_bots/Chaser.jar" 0 2>&1
+	java -jar engine/Tron.jar maps/apoc_small.txt ./MyTronBot "java -jar example_bots/Chaser.jar" 0 2>&1
 
 submission: MyTronBot.cc
 	zip a1k0n.zip MyTronBot.cc artictbl.h

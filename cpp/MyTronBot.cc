@@ -13,7 +13,7 @@
 #define FIRSTMOVE_USEC 2950000
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
-#define DRAW_PENALTY 0 // (10*itr) // -500
+#define DRAW_PENALTY 0 // -itr // -500
 #define VERBOSE 0
 
 // {{{ position
@@ -519,7 +519,7 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
 
   // since each bot is in a separate component by definition here, it's OK to
   // destructively update cp for floodfill()
-  int v = 1000*(floodfill(cp, s.p[0], false) -
+  int v = 10000*(floodfill(cp, s.p[0], false) -
                 floodfill(cp, s.p[1], false)); // assume everyone else's floodfill is as bad as ours?
 //                   cp.connectedarea(s.p[1]));
   if(player == 1) v = -v;
@@ -539,10 +539,10 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
 int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
 {
   // base cases: no more moves?  draws?
-  if(s.p[0] == s.p[1]) { return (player == 1 ? 1 : -1) * DRAW_PENALTY; } // crash!  draw!
+  if(s.p[0] == s.p[1]) { return DRAW_PENALTY; } // crash!  draw!
   if(degree(s.p[player]) == 0) {
     if(degree(s.p[player^1]) == 0) { // both boxed in; draw
-      return (player == 1 ? 1 : -1) * DRAW_PENALTY;
+      return DRAW_PENALTY;
     }
     return -INT_MAX;
   }
