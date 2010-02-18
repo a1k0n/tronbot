@@ -3,7 +3,7 @@
 require LWP::UserAgent;
 
 my $ua = LWP::UserAgent->new;
-$ua->timeout(10);
+$ua->timeout(60);
 
 sub toplist {
   my $response = $ua->get("http://csclub.uwaterloo.ca/contest/rankings.php");
@@ -31,5 +31,5 @@ sub gamelist {
 my @users = toplist;
 print("# loaded " . scalar(@users). " users\n");
 
-map { map { print("./getgame.pl $_ | ./examine >>gamedata\n") } gamelist($_) } @users;
+map { map { print("./getgame.pl $_; echo $_ >>allgames\n") } gamelist($_) } @users;
 
