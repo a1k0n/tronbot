@@ -4,12 +4,13 @@
 #include <sys/time.h>
 #include <limits.h>
 #include <assert.h>
+#include <signal.h>
 #include <map>
 #include <vector>
 
 #include "artictbl.h"
 
-#define TIMEOUT_USEC 950000
+#define TIMEOUT_USEC 990000
 #define FIRSTMOVE_USEC 2950000
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
@@ -115,7 +116,6 @@ static Map<int> dp0, dp1;
 static gamestate curstate;
 static char _killer[DEPTH_MAX*2];
 static int _maxitr=0;
-static bool firstmove = true;
 
 // {{{ imported map update garbage from original code
 bool map_update()
@@ -323,18 +323,34 @@ long _get_time()
 }
 
 static long _timer, _timeout;
-static bool _timed_out = false;
+static volatile bool _timed_out = false;
 static int _ab_runs=0;
+static int _spacefill_runs=0;
+
+void _alrm_handler(int sig) { _timed_out = true; }
+
 void reset_timer(long t)
 {
   _timer = _get_time();
+  itimerval timer;
+  memset(&timer, 0, sizeof(timer));
+  timer.it_value.tv_sec = t/1000000;
+  timer.it_value.tv_usec = t%1000000;
+  setitimer(ITIMER_REAL, &timer, NULL);
   _timed_out = false;
   _ab_runs = 0;
+  _spacefill_runs = 0;
   _timeout = t;
 }
 
+void stop_timer(void)
+{
+  itimerval timer = { { 0, 0 }, { 0, 0 } };
+  setitimer(ITIMER_REAL, &timer, NULL);
+}
+
+
 long elapsed_time() { return _get_time() - _timer; }
-bool timeout() { _timed_out = elapsed_time() > _timeout; return _timed_out; }
 // }}}
 
 // {{{ Dijkstra's
@@ -410,12 +426,11 @@ int floodfill(Components &ca, position s, bool fixup=true)
 }
 
 // returns spaces unused (wasted); idea is to minimize waste
-int _spacefill_runs=0;
 int _spacefill(int &move, Components &ca, position p, int itr) {
   int bestv = 0;
   int spacesleft = ca.connectedarea(p);
   if(degree(p) == 0) { move=1; return 0; }
-  if(_timed_out || ((_spacefill_runs++)&63) == 0 && timeout()) {
+  if(_timed_out) {
     return 0;
   }
   if(itr == 0)
@@ -439,9 +454,7 @@ int next_move_spacefill(Components &ca)
   int itr;
   int area = ca.connectedarea(curstate.p[0]);
   int bestv = 0, bestm = 1;
-  reset_timer(firstmove ? FIRSTMOVE_USEC : TIMEOUT_USEC);
-  firstmove=false;
-  for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !timeout();itr++) {
+  for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !_timed_out;itr++) {
     int m;
     _maxitr = itr;
     int v = _spacefill(m, ca, curstate.p[0], itr);
@@ -455,7 +468,6 @@ int next_move_spacefill(Components &ca)
 #endif
     if(v >= area) break; // solved!
   }
-  fprintf(stderr, "moving %d\n", bestm);
   return bestm;
 }
 // }}}
@@ -552,7 +564,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     return INT_MAX;
   }
 
-  if(_timed_out || ((_ab_runs++)&31) == 0 && timeout()) {
+  if(_timed_out) {
 #if VERBOSE >= 1
     fprintf(stderr, "timeout; a=%d b=%d itr=%d\n", a,b,itr);
 #endif
@@ -623,23 +635,11 @@ int next_move_alphabeta()
 {
   int itr;
   int lastv = -INT_MAX, lastm = 1;
-  reset_timer(firstmove ? FIRSTMOVE_USEC : TIMEOUT_USEC);
-  firstmove=false;
   evaluations=0;
-  for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !timeout();itr++) {
+  for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !_timed_out;itr++) {
     int m;
     _maxitr = itr*2;
     int v = _alphabeta(m, curstate, 0, -INT_MAX, INT_MAX, itr*2);
-#if 0
-    if(v >= 5000) {
-#if VERBOSE >= 1
-      struct timeval tv;
-      gettimeofday(&tv, NULL);
-      fprintf(stderr, "%d.%06d: v=%d best=%d (m=%d) -> found compelling move\n", (int) tv.tv_sec, (int) tv.tv_usec, v, lastv, m);
-#endif
-      return m;
-    }
-#endif
 #if VERBOSE >= 1
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -695,9 +695,13 @@ int next_move() {
 
 int main() {
   memset(_killer, 1, sizeof(_killer));
+  bool firstmove = true;
+  signal(SIGALRM, _alrm_handler);
+  setlinebuf(stdout);
   while (map_update()) {
+    reset_timer(firstmove ? FIRSTMOVE_USEC : TIMEOUT_USEC);
+    firstmove=false;
     printf("%d\n", move_permute[next_move()]);
-    fflush(stdout);
   }
 //#if VERBOSE >= 1
 //  fprintf(stderr, "%d evaluations\n", evaluations);
