@@ -3,7 +3,7 @@ CXXFLAGS = -g -O3 -funroll-loops -Wall
 OBJS = MyTronBot.o
 
 MyTronBot: $(OBJS)
-	$(CXX) $(CXXFLAGS) -o MyTronBot $(OBJS)
+	$(CXX) $(CXXFLAGS) -o MyTronBot $(OBJS) -lm
 
 clean::
 	rm -f $(OBJS) MyTronBot a1k0n.zip

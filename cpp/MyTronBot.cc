@@ -5,17 +5,18 @@
 #include <limits.h>
 #include <assert.h>
 #include <signal.h>
+#include <math.h>
 #include <map>
 #include <vector>
 
 #include "artictbl.h"
 
 #define TIMEOUT_USEC 990000
-#define FIRSTMOVE_USEC 2950000
+#define FIRSTMOVE_USEC 990000
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
 #define DRAW_PENALTY 0 // -itr // -500
-#define VERBOSE 0
+#define VERBOSE 1
 
 // {{{ position
 struct position {
@@ -28,8 +29,8 @@ struct position {
   //  1
   // 4 2
   //  3
-  position next(int move) { return position(x+dx[move], y+dy[move]); }
-  position prev(int move) { return position(x-dx[move], y-dy[move]); }
+  position next(int move) const { return position(x+dx[move], y+dy[move]); }
+  position prev(int move) const { return position(x-dx[move], y-dy[move]); }
 };
 
 bool operator==(const position &a, const position &b) { return a.x == b.x && a.y == b.y; }
@@ -474,6 +475,24 @@ int next_move_spacefill(Components &ca)
 
 // {{{ heuristic board evaluation
 
+// return number of edge-independent paths from source to sink
+// uses dijkstra's output to compute it
+int num_paths(Map<int> &_n, Map<int> &d, const position &s, const position &sink)
+{
+  if(_n(s)) return _n(s);
+  int cur = d(s);
+  int n = 0;
+  for(int m=1;m<=4;m++) {
+    position t = s.next(m);
+    if(t == sink) { n++; continue; }
+    if(M(t)) continue;
+    if(d(t) <= cur) continue; // must be strictly increasing distance from source
+    n += num_paths(_n, d, t, sink);
+  }
+  _n(s) = n;
+  return n;
+}
+
 int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
 {
   dijkstra(dp0, s.p[0], cp, comp);
@@ -484,10 +503,12 @@ int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
       position p(i,j);
       int diff = dp0(i,j) - dp1(i,j);
       // if the opponent's distance is shorter than ours, then this is "their" node
-      if(diff>0) { nodecount -= 51 + 170*degree(p) + 8*potential_articulation(p); }
+      if(diff>0) { nodecount -= 27 + 91*degree(p); }
       // otherwise it's ours
-      if(diff<0) { nodecount += 51 + 170*degree(p) + 8*potential_articulation(p); }
+      if(diff<0) { nodecount += 27 + 91*degree(p); }
     }
+  Map<int> n(M.width, M.height);
+  double value = nodecount/log(num_paths(n, dp0, s.p[0], s.p[1]));
 #if VERBOSE >= 2
   if(vis) {
     dp0.dump();
@@ -495,7 +516,7 @@ int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
     fprintf(stderr, "nodecount: %d\n", nodecount);
   }
 #endif
-  return nodecount;
+  return (int) value;
 }
 
 static int evaluations=0;
