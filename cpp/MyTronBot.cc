@@ -640,8 +640,9 @@ int next_move_alphabeta()
   int itr;
   int lastv = -INT_MAX, lastm = 1;
   evaluations=0;
+  char moves[DEPTH_MAX*2+1];
+  memset(moves, 1, sizeof(moves));
   for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !_timed_out;itr++) {
-    char moves[DEPTH_MAX*2+1];
     _maxitr = itr*2;
     int v = _alphabeta(moves, curstate, 0, -INT_MAX, INT_MAX, itr*2);
 #if VERBOSE >= 1
