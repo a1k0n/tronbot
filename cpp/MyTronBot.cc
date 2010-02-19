@@ -114,7 +114,7 @@ struct gamestate {
 static Map<char> M;
 static Map<int> dp0, dp1;
 static gamestate curstate;
-static char _killer[DEPTH_MAX*2];
+static char _killer[DEPTH_MAX*2+1];
 static int _maxitr=0;
 
 // {{{ imported map update garbage from original code
@@ -548,9 +548,11 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
 
 // do an iterative-deepening search on all moves and see if we can find a move
 // sequence that cuts off our opponent
-int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
+int _alphabeta(char *moves, gamestate s, int player, int a, int b, int itr)
 {
   // base cases: no more moves?  draws?
+  *moves=1; // set default move
+  _ab_runs++;
   if(s.p[0] == s.p[1]) { return DRAW_PENALTY; } // crash!  draw!
   if(degree(s.p[player]) == 0) {
     if(degree(s.p[player^1]) == 0) { // both boxed in; draw
@@ -592,6 +594,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
   // periodically check timeout.  if we do time out, give up, we can't do any
   // more work; whatever we found so far will have to do
   int kill = _killer[_maxitr-itr];
+  char bestmoves[DEPTH_MAX*2+1];
   for(int _m=0;_m<=4 && !_timed_out;_m++) {
     // convoluted logic: do "killer heuristic" move first
     if(_m == kill) continue;
@@ -607,12 +610,12 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
       M(r.p[0]) = 1;
       M(r.p[1]) = 1;
     }
-    int m_; // next move; discard
-    int a_ = -_alphabeta(m_, r, player^1, -b, -a, itr-1);
+    int a_ = -_alphabeta(moves+1, r, player^1, -b, -a, itr-1);
     if(a_ > a) {
       a = a_;
-      move = m;
+      bestmoves[0] = m;
       _killer[_maxitr-itr] = m;
+      memcpy(bestmoves+1, moves+1, itr-1);
     }
     // undo game state update
     if(player == 1) {
@@ -628,6 +631,7 @@ int _alphabeta(int &move, gamestate s, int player, int a, int b, int itr)
     if(a >= b) // beta cut-off
       break;
   }
+  memcpy(moves, bestmoves, itr);
   return a;
 }
 
@@ -637,24 +641,28 @@ int next_move_alphabeta()
   int lastv = -INT_MAX, lastm = 1;
   evaluations=0;
   for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !_timed_out;itr++) {
-    int m;
+    char moves[DEPTH_MAX*2+1];
     _maxitr = itr*2;
-    int v = _alphabeta(m, curstate, 0, -INT_MAX, INT_MAX, itr*2);
+    int v = _alphabeta(moves, curstate, 0, -INT_MAX, INT_MAX, itr*2);
 #if VERBOSE >= 1
     struct timeval tv;
     gettimeofday(&tv, NULL);
     //M.dump();
-    fprintf(stderr, "%d.%06d: v=%d (m=%d) @depth %d _ab_runs=%d\n", (int) tv.tv_sec, (int) tv.tv_usec, v, m, itr*2, _ab_runs);
+    fprintf(stderr, "%d.%06d: v=%d m=[", (int) tv.tv_sec, (int) tv.tv_usec, v);
+    for(int i=0;i<(itr < 10 ? itr*2 : 20);i++) fprintf(stderr, "%d", move_permute[(int)moves[i]]);
+    fprintf(stderr, "] @depth %d _ab_runs=%d\n",
+            itr*2, _ab_runs);
 #endif
     if(v == INT_MAX) // our opponent cannot move, so we win
-      return m;
+      return moves[0];
     if(v == -INT_MAX) {
       // deeper searching is apparently impossible (either because there are no
       // more moves for us or because we don't have any search time left)
       break;
     }
     lastv = v;
-    lastm = m;
+    lastm = moves[0];
+    memcpy(_killer, moves, itr*2);
   }
 #if VERBOSE >= 1
   long e = elapsed_time();
@@ -693,12 +701,17 @@ int next_move() {
   }
 }
 
-int main() {
+int main(int argc, char **argv) {
   memset(_killer, 1, sizeof(_killer));
   bool firstmove = true;
   signal(SIGALRM, _alrm_handler);
   setlinebuf(stdout);
   while (map_update()) {
+    if(argc>1 && atoi(argv[1])) {
+      position p = curstate.p[0];
+      curstate.p[0] = curstate.p[1];
+      curstate.p[1] = p;
+    }
     reset_timer(firstmove ? FIRSTMOVE_USEC : TIMEOUT_USEC);
     firstmove=false;
     printf("%d\n", move_permute[next_move()]);
