@@ -1,6 +1,7 @@
-CXXFLAGS = -g -O3 -funroll-loops -Wall
+CXXFLAGS = -g -Wall
 
 OBJS = MyTronBot.o
+REFBOT = ./MyTronBot9
 
 MyTronBot: $(OBJS)
 	$(CXX) $(CXXFLAGS) -o MyTronBot $(OBJS)
@@ -15,5 +16,10 @@ submission: MyTronBot.cc
 	zip a1k0n.zip MyTronBot.cc artictbl.h
 
 testall:: MyTronBot
-	for i in maps/*.txt; do java -jar engine/Tron.jar $$i ./MyTronBot "java -jar example_bots/Chaser.jar" 0 2>&1; done
+	rm -f testresults.out
+	for i in maps/*.txt; do java -jar engine/Tron.jar $$i ./MyTronBot $(REFBOT) 0 2>&1 | tee -a testresults.out; done
+
+testall2:: MyTronBot
+	rm -f testresults2.out
+	for i in maps/*.txt; do java -jar engine/Tron.jar $$i $(REFBOT) ./MyTronBot 0 2>&1 | tee -a testresults2.out; done
 

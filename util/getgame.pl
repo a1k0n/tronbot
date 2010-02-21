@@ -15,7 +15,7 @@ sub get_game {
   my ($gameid) = @_;
   my $game;
   if(-e "gamecache/$gameid") {
-    local $/=0;
+    local $/;
     open GAME, "<gamecache/$gameid";
     $game = <GAME>;
     close GAME;

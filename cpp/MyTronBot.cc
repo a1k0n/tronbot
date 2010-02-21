@@ -10,12 +10,12 @@
 
 #include "artictbl.h"
 
-#define TIMEOUT_USEC 990000
+#define TIMEOUT_USEC 980000
 #define FIRSTMOVE_USEC 2950000
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
 #define DRAW_PENALTY 0 // -itr // -500
-#define VERBOSE 0
+#define VERBOSE 1
 
 // {{{ position
 struct position {
@@ -28,8 +28,8 @@ struct position {
   //  1
   // 4 2
   //  3
-  position next(int move) { return position(x+dx[move], y+dy[move]); }
-  position prev(int move) { return position(x-dx[move], y-dy[move]); }
+  position next(int move) const { return position(x+dx[move], y+dy[move]); }
+  position prev(int move) const { return position(x-dx[move], y-dy[move]); }
 };
 
 bool operator==(const position &a, const position &b) { return a.x == b.x && a.y == b.y; }
@@ -55,25 +55,15 @@ template <class T> struct Map {
   void resize(int w, int h) {
     width = w; height = h;
     map = new T[w*h];
-    memset(map, 0, w*h*sizeof(T));
+    clear();
   }
+  void clear(void) { memset(map, 0, width*height*sizeof(T)); }
   Map(const Map &m) { abort(); } // this shouldn't happen
   ~Map() { if(map) delete[] map; }
   T& operator()(position p) { return map[p.x + p.y*width]; }
   T& operator()(int x, int y) { return map[x + y*width]; }
   T& M(position p) { return map[p.x + p.y*width]; }
   T& M(int x, int y) { return map[x + y*width]; }
-
-  position argmin(void) {
-    position p(0,0);
-    for(int j=0;j<height;j++) {
-      for(int i=0;i<width;i++) {
-        if(M(i,j) < M(p))
-          p = position(i,j);
-      }
-    }
-    return p;
-  }
 
   void dump(void) {
     for(int j=0;j<height;j++) {
@@ -113,6 +103,7 @@ struct gamestate {
 
 static Map<char> M;
 static Map<int> dp0, dp1;
+static Map<int> low, num, articd; // for articulation point finding
 static gamestate curstate;
 static char _killer[DEPTH_MAX*2+1];
 static int _maxitr=0;
@@ -130,6 +121,9 @@ bool map_update()
     M.resize(map_width, map_height);
     dp0.resize(map_width, map_height);
     dp1.resize(map_width, map_height);
+    num.resize(map_width, map_height);
+    low.resize(map_width, map_height);
+    articd.resize(map_width, map_height);
   }
   x = 0;
   y = 0;
@@ -180,6 +174,8 @@ bool map_update()
       return false;
     }
   }
+  for(int i=0;i<M.width;i++) { M(i,0) = 1; M(i,M.height-1)=1; }
+  for(int j=0;j<M.height;j++) { M(0,j) = 1; M(M.width-1,j)=1; }
   return true;
 }
 // }}}
@@ -400,6 +396,22 @@ void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
   }
 }
 
+int xgradient(Map<int> &d, const position &s)
+{
+  int g=0,n=-1;
+  if(!M(s.x-1,s.y)) { n++; g+=d(s.x-1,s.y) - d(s); }
+  if(!M(s.x+1,s.y)) { n++; g+=d(s) - d(s.x+1,s.y); }
+  return g>>n;
+}
+
+int ygradient(Map<int> &d, const position &s)
+{
+  int g=0,n=-1;
+  if(!M(s.x,s.y-1)) { n++; g+=d(s.x,s.y)-1 - d(s); }
+  if(!M(s.x,s.y+1)) { n++; g+=d(s) - d(s.x,s.y+1); }
+  return g>>n;
+}
+
 // }}}
 
 // {{{ space-filling
@@ -428,7 +440,7 @@ int floodfill(Components &ca, position s, bool fixup=true)
 // returns spaces unused (wasted); idea is to minimize waste
 int _spacefill(int &move, Components &ca, position p, int itr) {
   int bestv = 0;
-  int spacesleft = ca.connectedarea(p);
+  int spacesleft = ca.connectedarea(p)-1;
   if(degree(p) == 0) { move=1; return 0; }
   if(_timed_out) {
     return 0;
@@ -452,7 +464,7 @@ int _spacefill(int &move, Components &ca, position p, int itr) {
 int next_move_spacefill(Components &ca)
 {
   int itr;
-  int area = ca.connectedarea(curstate.p[0]);
+  int area = ca.connectedarea(curstate.p[0])-1;
   int bestv = 0, bestm = 1;
   for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !_timed_out;itr++) {
     int m;
@@ -474,25 +486,168 @@ int next_move_spacefill(Components &ca)
 
 // {{{ heuristic board evaluation
 
+static int _art_counter=0;
+void reset_articulations()
+{
+  _art_counter=0;
+  low.clear();
+  num.clear();
+  articd.clear();
+}
+
+// calculate articulation vertices within our voronoi region
+// algorithm taken from http://www.eecs.wsu.edu/~holder/courses/CptS223/spr08/slides/graphapps.pdf
+// DFS traversal of graph
+void calc_articulations(Map<int> &dp0, Map<int> &dp1, const position &v, int parent=-1)
+{
+  int nodenum = ++_art_counter;
+  low(v) = num(v) = nodenum; // rule 1
+  int children=0;
+  for(int m=1;m<=4;m++) {
+    position w = v.next(m);
+    if(M(w)) continue;
+    if(dp0(w) >= dp1(w)) continue; // filter out nodes not in our voronoi region
+    if(!num(w)) { // forward edge
+      children++;
+      calc_articulations(dp0, dp1, w, nodenum);
+      if(low(w) >= nodenum && parent != -1)
+        articd(v) = 1;
+      if(low(w) < low(v)) low(v) = low(w);   // rule 3
+    } else {
+      if(num(w) < nodenum) { // back edge
+        if(num(w) < low(v)) low(v) = num(w); // rule 2
+      }
+    }
+  }
+  if(parent == -1 && children > 1) {
+    articd(v) = 1;
+  }
+}
+
+// returns the maximum "weight" of connected reachable components: we find the
+// "region" bounded by all articulation points, traverse each adjacent region
+// recursively, and return the maximum traversable area
+int _explore_space(Map<int> &dp0, Map<int> &dp1, std::vector<position> &exits, const position &v)
+{
+  int nodecount=1, edgecount=0, childcount=0;
+  num(v) = 0;
+  for(int m=1;m<=4;m++) {
+    position w = v.next(m);
+    if(M(w)) continue;
+    edgecount++;
+    if(dp0(w) >= dp1(w)) continue; // filter out nodes not in our voronoi region
+    if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
+    if(articd(w)) { // is this vertex articulated?  then add it as an exit and don't traverse it yet
+      num(w) = 0; // ensure only one copy gets pushed in here
+      exits.push_back(w);
+    } else {
+      childcount += _explore_space(dp0,dp1,exits,w);
+    }
+  }
+  return 51*nodecount+170*edgecount+8*potential_articulation(v)+childcount;
+  //return nodecount+edgecount+childcount;
+  //return edgecount+childcount;
+}
+
+int max_articulated_space(Map<int> &dp0, Map<int> &dp1, const position &v)
+{
+  std::vector<position> exits;
+  int space = _explore_space(dp0,dp1,exits,v);
+  //fprintf(stderr, "space@%d,%d = %d exits: ", v.x,v.y, space);
+  //for(size_t i=0;i<exits.size();i++) fprintf(stderr, "%d,%d ", exits[i].x, exits[i].y);
+  //fprintf(stderr, "\n");
+  int maxchild = 0;
+  for(size_t i=0;i<exits.size();i++) {
+    int child = max_articulated_space(dp0,dp1,exits[i]);
+    if(child > maxchild) maxchild = child;
+    //maxchild+=child; // should be the same behavior
+  }
+  return space+maxchild;
+}
+
 int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
 {
   dijkstra(dp0, s.p[0], cp, comp);
   dijkstra(dp1, s.p[1], cp, comp);
-  int nodecount = 0;
+  reset_articulations();
+  M(s.p[0])=0; M(s.p[1])=0;
+  calc_articulations(dp0, dp1, s.p[0]);
+  calc_articulations(dp1, dp0, s.p[1]);
+  int nc0_ = max_articulated_space(dp0, dp1, s.p[0]),
+      nc1_ = max_articulated_space(dp1, dp0, s.p[1]);
+#if 0
+  int nc0=0, nc1=0;
   for(int j=0;j<M.height;j++)
     for(int i=0;i<M.width;i++) {
       position p(i,j);
       int diff = dp0(i,j) - dp1(i,j);
-      // if the opponent's distance is shorter than ours, then this is "their" node
-      if(diff>0) { nodecount -= 51 + 170*degree(p) + 8*potential_articulation(p); }
-      // otherwise it's ours
-      if(diff<0) { nodecount += 51 + 170*degree(p) + 8*potential_articulation(p); }
+      // if the opponent's distance is shorter than ours, then this is "their"
+      // node, otherwise it's ours
+      //if(diff>0) { nc1 += degree(p); }//if(vis) fprintf(stderr, "nc1:(%d,%d)\n", p.x,p.y); }
+      //else if(diff<0) { nc0 += degree(p); }//if(vis) fprintf(stderr, "nc0:(%d,%d)\n", p.x,p.y); }
+      if(diff>0) { nc1 += 51 + 170*degree(p) + 8*potential_articulation(p); }
+      else if(diff<0) { nc0 += 51 + 170*degree(p) + 8*potential_articulation(p); }
     }
+#endif
+  M(s.p[0])=1; M(s.p[1])=1;
+  int nodecount = nc0_ - nc1_;
 #if VERBOSE >= 2
   if(vis) {
-    dp0.dump();
-    dp1.dump();
-    fprintf(stderr, "nodecount: %d\n", nodecount);
+    fprintf(stderr, "dp0(p0,p1) -> %d,%d\n", dp0(s.p[0]), dp0(s.p[1]));
+    fprintf(stderr, "dp1(p0,p1) -> %d,%d\n", dp1(s.p[0]), dp1(s.p[1]));
+    for(int j=0;j<M.height;j++) {
+      for(int i=0;i<M.width;i++) {
+        if(dp0(i,j) == INT_MAX) fprintf(stderr,M(i,j) ? " #" : "  ");
+        else fprintf(stderr,"%2d", dp0(i,j));
+      }
+      fprintf(stderr," ");
+      for(int i=0;i<M.width;i++) {
+        if(dp1(i,j) == INT_MAX) fprintf(stderr,M(i,j) ? " #" : "  ");
+        else fprintf(stderr,"%2d", dp1(i,j));
+      }
+      fprintf(stderr," ");
+      for(int i=0;i<M.width;i++) {
+        int d = dp1(i,j)-dp0(i,j);
+        if(articd(i,j))
+          fprintf(stderr,"-");
+        else if(d == INT_MAX || d == -INT_MAX)
+          fprintf(stderr,"#");
+        else if(d == 0) fprintf(stderr,".");
+        else {
+          d = d<0 ? 2 : d>0 ? 1 : 0;
+          fprintf(stderr,"%d", d);
+        }
+      }
+      fprintf(stderr,"\n");
+    }
+#if 0
+    fprintf(stderr, "nodecount: %d (0: %d/%d, 1: %d/%d)\n", nodecount, nc0_,nc0, nc1_,nc1);
+#else
+    fprintf(stderr, "nodecount: %d (0: %d, 1: %d)\n", nodecount, nc0_, nc1_,);
+#endif
+#if 0
+    for(int j=0;j<M.height;j++) {
+      for(int i=0;i<M.width;i++) {
+        if(num(i,j) == 0) fprintf(stderr,"  %c", M(i,j) ? '#' : '.');
+        else fprintf(stderr,"%3d", num(i,j));
+      }
+      fprintf(stderr," ");
+      for(int i=0;i<M.width;i++) {
+        if(low(i,j) == 0) fprintf(stderr,"  %c", M(i,j) ? '#' : '.');
+        else fprintf(stderr,"%3d", low(i,j));
+      }
+      fprintf(stderr," ");
+      for(int i=0;i<M.width;i++) {
+        int d = num(i,j)-low(i,j);
+        if(num(i,j) == 0)
+          fprintf(stderr, " #");
+        else if(d <= 0)
+          fprintf(stderr," *");
+        else fprintf(stderr," .");
+      }
+      fprintf(stderr,"\n");
+    }
+#endif
   }
 #endif
   return nodecount;
@@ -668,7 +823,7 @@ int next_move_alphabeta()
 #if VERBOSE >= 1
   long e = elapsed_time();
   float rate = (float)evaluations*1000000.0/(float)e;
-  fprintf(stderr, "%d evals in %ld us; %0.1f evals/sec; lastv=%d move=%d\n", evaluations, e, rate, lastv, lastm);
+  fprintf(stderr, "%d evals in %ld us; %0.1f evals/sec; lastv=%d move=%d\n", evaluations, e, rate, lastv, move_permute[lastm]);
   if(e > TIMEOUT_USEC*11/10) {
     fprintf(stderr, "10%% timeout violation: %ld us\n", e);
   }
@@ -713,7 +868,9 @@ int main(int argc, char **argv) {
       curstate.p[0] = curstate.p[1];
       curstate.p[1] = p;
     }
-    reset_timer(firstmove ? FIRSTMOVE_USEC : TIMEOUT_USEC);
+    if(argc>2 && atoi(argv[2])) {} else {
+      reset_timer(firstmove ? FIRSTMOVE_USEC : TIMEOUT_USEC);
+    }
     firstmove=false;
     printf("%d\n", move_permute[next_move()]);
   }
