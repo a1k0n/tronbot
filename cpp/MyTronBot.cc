@@ -531,17 +531,33 @@ int _explore_space(Map<int> &dp0, Map<int> &dp1, std::vector<position> &exits, c
 {
   int nodecount=1, edgecount=0, childcount=0;
   num(v) = 0;
-  for(int m=1;m<=4;m++) {
-    position w = v.next(m);
-    if(M(w)) continue;
-    edgecount++;
-    if(dp0(w) >= dp1(w)) continue; // filter out nodes not in our voronoi region
-    if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
-    if(articd(w)) { // is this vertex articulated?  then add it as an exit and don't traverse it yet
-      num(w) = 0; // ensure only one copy gets pushed in here
+  if(articd(v)) {
+    // we're an articulation vertex; nothing to do but populate the exits
+    for(int m=1;m<=4;m++) {
+      position w = v.next(m);
+      if(M(w)) continue;
+      edgecount++;
+      if(dp0(w) >= dp1(w)) { continue; }
+      if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
       exits.push_back(w);
-    } else {
-      childcount += _explore_space(dp0,dp1,exits,w);
+    }
+  } else {
+    // this is a non-articulation vertex
+    for(int m=1;m<=4;m++) {
+      position w = v.next(m);
+      if(M(w)) continue;
+      edgecount++;
+
+      // filter out nodes not in our voronoi region
+      if(dp0(w) >= dp1(w)) { continue; }
+
+      if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
+      if(articd(w)) { // is this vertex articulated?  then add it as an exit and don't traverse it yet
+        num(w) = 0; // ensure only one copy gets pushed in here
+        exits.push_back(w);
+      } else {
+        childcount += _explore_space(dp0,dp1,exits,w);
+      }
     }
   }
   return 51*nodecount+170*edgecount+8*potential_articulation(v)+childcount;
@@ -560,7 +576,6 @@ int max_articulated_space(Map<int> &dp0, Map<int> &dp1, const position &v)
   for(size_t i=0;i<exits.size();i++) {
     int child = max_articulated_space(dp0,dp1,exits[i]);
     if(child > maxchild) maxchild = child;
-    //maxchild+=child; // should be the same behavior
   }
   return space+maxchild;
 }
@@ -575,7 +590,7 @@ int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
   calc_articulations(dp1, dp0, s.p[1]);
   int nc0_ = max_articulated_space(dp0, dp1, s.p[0]),
       nc1_ = max_articulated_space(dp1, dp0, s.p[1]);
-#if 0
+#if VERBOSE >= 2
   int nc0=0, nc1=0;
   for(int j=0;j<M.height;j++)
     for(int i=0;i<M.width;i++) {
@@ -620,11 +635,7 @@ int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
       }
       fprintf(stderr,"\n");
     }
-#if 0
     fprintf(stderr, "nodecount: %d (0: %d/%d, 1: %d/%d)\n", nodecount, nc0_,nc0, nc1_,nc1);
-#else
-    fprintf(stderr, "nodecount: %d (0: %d, 1: %d)\n", nodecount, nc0_, nc1_,);
-#endif
 #if 0
     for(int j=0;j<M.height;j++) {
       for(int i=0;i<M.width;i++) {
