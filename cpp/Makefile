@@ -1,4 +1,4 @@
-CXXFLAGS = -g -Wall
+CXXFLAGS = -g -O3 -Wall
 
 OBJS = MyTronBot.o
 REFBOT = ./MyTronBot9

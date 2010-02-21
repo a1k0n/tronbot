@@ -750,6 +750,7 @@ int _alphabeta(char *moves, gamestate s, int player, int a, int b, int itr)
   // more work; whatever we found so far will have to do
   int kill = _killer[_maxitr-itr];
   char bestmoves[DEPTH_MAX*2+1];
+  memset(bestmoves, 1, sizeof(bestmoves));
   for(int _m=0;_m<=4 && !_timed_out;_m++) {
     // convoluted logic: do "killer heuristic" move first
     if(_m == kill) continue;
