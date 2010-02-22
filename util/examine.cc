@@ -111,6 +111,7 @@ struct gamestate {
 
 static Map<char> M;
 static Map<int> dp0, dp1;
+static Map<int> low, num, articd; // for articulation point finding
 static gamestate curstate;
 static char _killer[DEPTH_MAX*2];
 static int _maxitr=0;
@@ -129,6 +130,9 @@ bool map_update()
     M.resize(map_width, map_height);
     dp0.resize(map_width, map_height);
     dp1.resize(map_width, map_height);
+    num.resize(map_width, map_height);
+    low.resize(map_width, map_height);
+    articd.resize(map_width, map_height);
   }
   x = 0;
   y = 0;
@@ -463,6 +467,100 @@ int next_move_spacefill(Components &ca)
 // }}}
 
 // {{{ heuristic board evaluation
+
+static int _art_counter=0;
+void reset_articulations()
+{
+  _art_counter=0;
+  low.clear();
+  num.clear();
+  articd.clear();
+}
+
+// calculate articulation vertices within our voronoi region
+// algorithm taken from http://www.eecs.wsu.edu/~holder/courses/CptS223/spr08/slides/graphapps.pdf
+// DFS traversal of graph
+void calc_articulations(Map<int> &dp0, Map<int> &dp1, const position &v, int parent=-1)
+{
+  int nodenum = ++_art_counter;
+  low(v) = num(v) = nodenum; // rule 1
+  int children=0;
+  for(int m=1;m<=4;m++) {
+    position w = v.next(m);
+    if(M(w)) continue;
+    if(dp0(w) >= dp1(w)) continue; // filter out nodes not in our voronoi region
+    if(!num(w)) { // forward edge
+      children++;
+      calc_articulations(dp0, dp1, w, nodenum);
+      if(low(w) >= nodenum && parent != -1)
+        articd(v) = 1;
+      if(low(w) < low(v)) low(v) = low(w);   // rule 3
+    } else {
+      if(num(w) < nodenum) { // back edge
+        if(num(w) < low(v)) low(v) = num(w); // rule 2
+      }
+    }
+  }
+  if(parent == -1 && children > 1) {
+    articd(v) = 1;
+  }
+}
+
+// returns the maximum "weight" of connected reachable components: we find the
+// "region" bounded by all articulation points, traverse each adjacent region
+// recursively, and return the maximum traversable area
+int _explore_space(Map<int> &dp0, Map<int> &dp1, std::vector<position> &exits, const position &v)
+{
+  int nodecount=1, edgecount=0, childcount=0;
+  num(v) = 0;
+  if(articd(v)) {
+    // we're an articulation vertex; nothing to do but populate the exits
+    for(int m=1;m<=4;m++) {
+      position w = v.next(m);
+      if(M(w)) continue;
+      edgecount++;
+      if(dp0(w) >= dp1(w)) { continue; }
+      if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
+      exits.push_back(w);
+    }
+  } else {
+    // this is a non-articulation vertex
+    for(int m=1;m<=4;m++) {
+      position w = v.next(m);
+      if(M(w)) continue;
+      edgecount++;
+
+      // filter out nodes not in our voronoi region
+      if(dp0(w) >= dp1(w)) { continue; }
+
+      if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
+      if(articd(w)) { // is this vertex articulated?  then add it as an exit and don't traverse it yet
+        num(w) = 0; // ensure only one copy gets pushed in here
+        exits.push_back(w);
+      } else {
+        childcount += _explore_space(dp0,dp1,exits,w);
+      }
+    }
+  }
+  return 51*nodecount+170*edgecount+8*potential_articulation(v)+childcount;
+  //return nodecount+edgecount+childcount;
+  //return edgecount+childcount;
+}
+
+int max_articulated_space(Map<int> &dp0, Map<int> &dp1, const position &v)
+{
+  std::vector<position> exits;
+  int space = _explore_space(dp0,dp1,exits,v);
+  //fprintf(stderr, "space@%d,%d = %d exits: ", v.x,v.y, space);
+  //for(size_t i=0;i<exits.size();i++) fprintf(stderr, "%d,%d ", exits[i].x, exits[i].y);
+  //fprintf(stderr, "\n");
+  int maxchild = 0;
+  for(size_t i=0;i<exits.size();i++) {
+    int child = max_articulated_space(dp0,dp1,exits[i]);
+    if(child > maxchild) maxchild = child;
+  }
+  return space+maxchild;
+}
 
 int _evaluate_territory(int *indicators, const gamestate &s, Components &cp, int comp, bool vis)
 {
