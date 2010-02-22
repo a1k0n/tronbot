@@ -1,0 +1,3 @@
+#!/bin/sh
+
+java -jar engine/Tron.jar $1 ./MyTronBot9 ./MyTronBot 0 2>&1

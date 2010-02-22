@@ -1,0 +1,3 @@
+#!/bin/sh
+
+java -jar engine/Tron.jar $1 ./MyTronBot "java -jar example_bots/WallHugger.jar" 0 2>&1
