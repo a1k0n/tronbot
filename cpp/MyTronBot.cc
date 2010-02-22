@@ -62,8 +62,10 @@ template <class T> struct Map {
   ~Map() { if(map) delete[] map; }
   T& operator()(position p) { return map[p.x + p.y*width]; }
   T& operator()(int x, int y) { return map[x + y*width]; }
+  T& operator()(int idx) { return map[idx]; }
   T& M(position p) { return map[p.x + p.y*width]; }
   T& M(int x, int y) { return map[x + y*width]; }
+  int idx(position p) { return p.x + p.y*width; }
 
   void dump(void) {
     for(int j=0;j<height;j++) {
@@ -191,6 +193,10 @@ int degree(position x) {
   return 4 - M(x.next(1)) - M(x.next(2)) - M(x.next(3)) - M(x.next(0));
 }
 
+int degree(int idx) {
+  return 4 - M(idx-1) - M(idx+1) - M(idx-M.width) - M(idx+M.width);
+}
+
 // return bitmask of neighbors, for table lookups
 int neighbors(position s) {
   return (M(s.x-1, s.y-1) |
@@ -221,35 +227,32 @@ struct Components {
     equiv.clear(); equiv.push_back(0);
     cedges.clear(); csize.clear();
     int nextclass = 1;
-    for(int j=1;j<M.height-1;j++) {
-      for(int i=1;i<M.width-1;i++) {
-        if(M(i,j)) continue; // wall
-        int cup   = equiv[c(i, j-1)],
-            cleft = equiv[c(i-1, j)];
-        if(cup == 0 && cleft == 0) { // new component
-          equiv.push_back(nextclass);
-          c(i,j) = nextclass++;
-        } else if(cup == cleft) { // existing component
-          c(i,j) = cup;
-        } else { // join components
-          // deprecate the higher-numbered component in favor of the lower
-          if(cleft == 0 || (cup != 0 && cup < cleft)) {
-            c(i,j) = cup;
-            if(cleft != 0) _merge(equiv, cleft, cup);
-          } else {
-            c(i,j) = cleft;
-            if(cup != 0) _merge(equiv, cup, cleft);
-          }
+    int mapbottom = M.width*(M.height-1)-1;
+    for(int idx=M.width+1;idx<mapbottom;idx++) {
+      if(M(idx)) continue; // wall
+      int cup   = equiv[c(idx-M.width)],
+          cleft = equiv[c(idx-1)];
+      if(cup == 0 && cleft == 0) { // new component
+        equiv.push_back(nextclass);
+        c(idx) = nextclass++;
+      } else if(cup == cleft) { // existing component
+        c(idx) = cup;
+      } else { // join components
+        // deprecate the higher-numbered component in favor of the lower
+        if(cleft == 0 || (cup != 0 && cup < cleft)) {
+          c(idx) = cup;
+          if(cleft != 0) _merge(equiv, cleft, cup);
+        } else {
+          c(idx) = cleft;
+          if(cup != 0) _merge(equiv, cup, cleft);
         }
       }
     }
-    // now make another pass to compute connected area
-    for(int j=1;j<M.height-1;j++) {
-      for(int i=1;i<M.width-1;i++) {
-        c(i,j) = equiv[c(i,j)];
-        cedges[c(i,j)] += degree(position(i,j));
-        csize[c(i,j)] ++;
-      }
+    // now make another pass to translate equivalences and compute connected area
+    for(int idx=M.width+1;idx<mapbottom;idx++) {
+      c(idx) = equiv[c(idx)];
+      cedges[c(idx)] += degree(idx);
+      csize[c(idx)] ++;
     }
   }
 
@@ -355,10 +358,9 @@ void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
   static std::vector<std::vector<position> > Q;
   static Map<int> loc;
   size_t min_dist=0;
-  int i,j;
-  for(j=0;j<M.height;j++)
-    for(i=0;i<M.width;i++)
-      d(i,j) = INT_MAX;
+  int siz = M.width*M.height;
+  for(int idx=0;idx<siz;idx++)
+    d(idx) = INT_MAX;
   if(!loc.map) loc.resize(d.width, d.height);
 
   Q.clear(); Q.push_back(std::vector<position>());
@@ -366,8 +368,8 @@ void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
   d(s) = 0;
   loc(s) = 0;
   while(min_dist != Q.size()) {
-    position u = *(Q[min_dist].begin());
-    Q[min_dist].erase(Q[min_dist].begin());
+    position u = Q[min_dist].back();
+    Q[min_dist].pop_back();
     for(int m=0;m<4;m++) {
       position v = u.next(m);
       if(M(v)) continue;
@@ -394,22 +396,6 @@ void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
     }
     while(min_dist < Q.size() && Q[min_dist].empty()) min_dist++;
   }
-}
-
-int xgradient(Map<int> &d, const position &s)
-{
-  int g=0,n=-1;
-  if(!M(s.x-1,s.y)) { n++; g+=d(s.x-1,s.y) - d(s); }
-  if(!M(s.x+1,s.y)) { n++; g+=d(s) - d(s.x+1,s.y); }
-  return g>>n;
-}
-
-int ygradient(Map<int> &d, const position &s)
-{
-  int g=0,n=-1;
-  if(!M(s.x,s.y-1)) { n++; g+=d(s.x,s.y)-1 - d(s); }
-  if(!M(s.x,s.y+1)) { n++; g+=d(s) - d(s.x,s.y+1); }
-  return g>>n;
 }
 
 // }}}
