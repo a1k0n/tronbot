@@ -15,11 +15,11 @@
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
 #define DRAW_PENALTY 0 // -itr // -500
-#define VERBOSE 0
+#define VERBOSE 1
 
 // {{{ position
 struct position {
-  static const char dx[5], dy[5];
+  static const char dx[4], dy[4];
 
   int x,y;
   position() {}
@@ -41,9 +41,9 @@ bool operator<(const position &a, const position &b) { return a.x == b.x ? a.y <
 // so instead it's  1
 //                 4 3
 //                  2
-const char position::dx[5]={0, 0, 0, 1,-1};
-const char position::dy[5]={0,-1, 1, 0, 0};
-const int move_permute[5]={0,1,3,2,4};
+const char position::dx[4]={ 0, 0, 1,-1};
+const char position::dy[4]={-1, 1, 0, 0};
+const int move_permute[4]={1,3,2,4};
 // }}}
 
 // {{{ Map
@@ -188,7 +188,7 @@ int runout(position p, int dir) {
 }
 
 int degree(position x) {
-  return 4 - M(x.next(1)) - M(x.next(2)) - M(x.next(3)) - M(x.next(4));
+  return 4 - M(x.next(1)) - M(x.next(2)) - M(x.next(3)) - M(x.next(0));
 }
 
 // return bitmask of neighbors, for table lookups
@@ -263,7 +263,7 @@ struct Components {
     }
   }
   void add(position s) {
-    for(int m=1;m<=4;m++) {
+    for(int m=0;m<4;m++) {
       position r = s.next(m);
       if(M(r)) continue;
       if(c(s) != 0 && c(s) != c(r)) { recalc(); return; }
@@ -368,7 +368,7 @@ void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
   while(min_dist != Q.size()) {
     position u = *(Q[min_dist].begin());
     Q[min_dist].erase(Q[min_dist].begin());
-    for(int m=1;m<=4;m++) {
+    for(int m=0;m<4;m++) {
       position v = u.next(m);
       if(M(v)) continue;
       int alt = 1 + d(u);
@@ -422,7 +422,7 @@ int floodfill(Components &ca, position s, bool fixup=true)
   // possible (in other words, move onto the square with the lowest degree)
   int bestv=0;
   position b = s;
-  for(int m=1;m<=4;m++) {
+  for(int m=0;m<4;m++) {
     position p = s.next(m);
     if(M(p)) continue;
     int v = ca.connectedvalue(p) + ca.connectedarea(p) - 1 - 2*degree(p) -
@@ -447,7 +447,7 @@ int _spacefill(int &move, Components &ca, position p, int itr) {
   }
   if(itr == 0)
     return floodfill(ca, p);
-  for(int m=1;m<=4 && !_timed_out;m++) {
+  for(int m=0;m<4 && !_timed_out;m++) {
     position r = p.next(m);
     if(M(r)) continue;
     M(r) = 1; ca.remove(r);
@@ -503,7 +503,7 @@ void calc_articulations(Map<int> &dp0, Map<int> &dp1, const position &v, int par
   int nodenum = ++_art_counter;
   low(v) = num(v) = nodenum; // rule 1
   int children=0;
-  for(int m=1;m<=4;m++) {
+  for(int m=0;m<4;m++) {
     position w = v.next(m);
     if(M(w)) continue;
     if(dp0(w) >= dp1(w)) continue; // filter out nodes not in our voronoi region
@@ -533,7 +533,7 @@ int _explore_space(Map<int> &dp0, Map<int> &dp1, std::vector<position> &exits, c
   num(v) = 0;
   if(articd(v)) {
     // we're an articulation vertex; nothing to do but populate the exits
-    for(int m=1;m<=4;m++) {
+    for(int m=0;m<4;m++) {
       position w = v.next(m);
       if(M(w)) continue;
       edgecount++;
@@ -543,7 +543,7 @@ int _explore_space(Map<int> &dp0, Map<int> &dp1, std::vector<position> &exits, c
     }
   } else {
     // this is a non-articulation vertex
-    for(int m=1;m<=4;m++) {
+    for(int m=0;m<4;m++) {
       position w = v.next(m);
       if(M(w)) continue;
       edgecount++;
@@ -608,8 +608,6 @@ int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
   int nodecount = nc0_ - nc1_;
 #if VERBOSE >= 2
   if(vis) {
-    fprintf(stderr, "dp0(p0,p1) -> %d,%d\n", dp0(s.p[0]), dp0(s.p[1]));
-    fprintf(stderr, "dp1(p0,p1) -> %d,%d\n", dp1(s.p[0]), dp1(s.p[1]));
     for(int j=0;j<M.height;j++) {
       for(int i=0;i<M.width;i++) {
         if(dp0(i,j) == INT_MAX) fprintf(stderr,M(i,j) ? " #" : "  ");
@@ -735,7 +733,7 @@ int _alphabeta(char *moves, gamestate s, int player, int a, int b, int itr)
   }
   if(degree(s.p[player^1]) == 0) {
     // choose any move
-    for(int m=1;m<=4;m++) if(!M(s.p[player].next(m))) break;
+    for(int m=0;m<4;m++) if(!M(s.p[player].next(m))) break;
     return INT_MAX;
   }
 
@@ -768,11 +766,11 @@ int _alphabeta(char *moves, gamestate s, int player, int a, int b, int itr)
   // more work; whatever we found so far will have to do
   int kill = _killer[_maxitr-itr];
   char bestmoves[DEPTH_MAX*2+1];
-  memset(bestmoves, 1, sizeof(bestmoves));
-  for(int _m=0;_m<=4 && !_timed_out;_m++) {
+  memset(bestmoves, 0, itr);
+  for(int _m=-1;_m<4 && !_timed_out;_m++) {
     // convoluted logic: do "killer heuristic" move first
     if(_m == kill) continue;
-    int m = _m == 0 ? kill : _m;
+    int m = _m == -1 ? kill : _m;
     if(M(s.p[player].next(m))) // impossible move?
       continue;
     gamestate r = s;
@@ -815,7 +813,7 @@ int next_move_alphabeta()
   int lastv = -INT_MAX, lastm = 1;
   evaluations=0;
   char moves[DEPTH_MAX*2+1];
-  memset(moves, 1, sizeof(moves));
+  memset(moves, 0, sizeof(moves));
   for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !_timed_out;itr++) {
     _maxitr = itr*2;
     int v = _alphabeta(moves, curstate, 0, -INT_MAX, INT_MAX, itr*2);
@@ -862,7 +860,7 @@ int next_move() {
   M(curstate.p[1]) = 1;
   if(degree(curstate.p[0]) == 1) {
     // only one possible move we can make, so make it and don't waste any time
-    for(int m=1;m<=4;m++)
+    for(int m=0;m<4;m++)
       if(!M(curstate.p[0].next(m)))
         return m;
   }
@@ -877,7 +875,7 @@ int next_move() {
 }
 
 int main(int argc, char **argv) {
-  memset(_killer, 1, sizeof(_killer));
+  memset(_killer, 0, sizeof(_killer));
   bool firstmove = true;
   signal(SIGALRM, _alrm_handler);
   setlinebuf(stdout);
