@@ -32,8 +32,8 @@ struct position {
   position prev(int move) const { return position(x-dx[move], y-dy[move]); }
 };
 
-bool operator==(const position &a, const position &b) { return a.x == b.x && a.y == b.y; }
-bool operator<(const position &a, const position &b) { return a.x == b.x ? a.y < b.y : a.x < b.x; }
+static bool operator==(const position &a, const position &b) { return a.x == b.x && a.y == b.y; }
+//static bool operator<(const position &a, const position &b) { return a.x == b.x ? a.y < b.y : a.x < b.x; }
 
 // note: the canonical order (above) is changed internally here in order to
 // attain more symmetric play; this is mainly a failing of the evaluation
@@ -44,6 +44,9 @@ bool operator<(const position &a, const position &b) { return a.x == b.x ? a.y <
 const char position::dx[4]={ 0, 0, 1,-1};
 const char position::dy[4]={-1, 1, 0, 0};
 const int move_permute[4]={1,3,2,4};
+
+static inline int _min(int a, int b) { return a<b ? a : b; }
+static inline int _max(int a, int b) { return a>b ? a : b; }
 // }}}
 
 // {{{ Map
@@ -183,22 +186,19 @@ bool map_update()
 // }}}
 
 // {{{ basic geometric stuff
-int runout(position p, int dir) {
-  int r = 0;
-  while(!M(p)) { r++; p = p.next(dir); }
-  return r;
-}
+static inline int color(position x) { return (x.x ^ x.y)&1; } // convention: 1=red, 0=black
+static inline int color(int x, int y) { return (x ^ y)&1; } // convention: 1=red, 0=black
 
-int degree(position x) {
+static int degree(position x) {
   return 4 - M(x.next(1)) - M(x.next(2)) - M(x.next(3)) - M(x.next(0));
 }
 
-int degree(int idx) {
+static int degree(int idx) {
   return 4 - M(idx-1) - M(idx+1) - M(idx-M.width) - M(idx+M.width);
 }
 
 // return bitmask of neighbors, for table lookups
-int neighbors(position s) {
+static int neighbors(position s) {
   return (M(s.x-1, s.y-1) |
           (M(s.x  , s.y-1)<<1) |
           (M(s.x+1, s.y-1)<<2) |
@@ -209,23 +209,21 @@ int neighbors(position s) {
           (M(s.x-1, s.y  )<<7));
 }
 
-int potential_articulation(position s) { return _potential_articulation[neighbors(s)]; }
-
-int turn(int d, int n) { return 1+(d-1+n)&3; }
+static int potential_articulation(position s) { return _potential_articulation[neighbors(s)]; }
 // }}}
 
 // {{{ connected components algorithm
 
 struct Components {
   Map<int> c;
-  std::map<int,int> cedges, csize;
+  std::vector<int> cedges, red, black;
 
   Components(Map<char> &M): c(M.width, M.height) { recalc(); }
 
   void recalc(void) {
     static std::vector<int> equiv;
     equiv.clear(); equiv.push_back(0);
-    cedges.clear(); csize.clear();
+    cedges.clear(); red.clear(); black.clear();
     int nextclass = 1;
     int mapbottom = M.width*(M.height-1)-1;
     for(int idx=M.width+1;idx<mapbottom;idx++) {
@@ -248,11 +246,17 @@ struct Components {
         }
       }
     }
+    cedges.resize(nextclass, 0);
+    red.resize(nextclass, 0);
+    black.resize(nextclass, 0);
     // now make another pass to translate equivalences and compute connected area
-    for(int idx=M.width+1;idx<mapbottom;idx++) {
-      c(idx) = equiv[c(idx)];
-      cedges[c(idx)] += degree(idx);
-      csize[c(idx)] ++;
+    for(int j=1,idx=M.width+1;j<M.height-1;j++,idx+=2) {
+      for(int i=1;i<M.width-1;i++,idx++) {
+        int e = equiv[c(idx)];
+        c(idx) = e;
+        cedges[e] += degree(idx);
+        if(color(i,j)) red[e] ++; else black[e] ++;
+      }
     }
   }
 
@@ -262,7 +266,7 @@ struct Components {
       recalc();
     } else {
       cedges[c(s)] -= 2*degree(s);
-      csize[c(s)] --;
+      if(color(s)) red[c(s)] --; else black[c(s)] --;
     }
   }
   void add(position s) {
@@ -273,22 +277,31 @@ struct Components {
       c(s) = c(r);
     }
     cedges[c(s)] += 2*degree(s);
-    csize[c(s)] ++;
+    if(color(s)) red[c(s)] ++; else black[c(s)] ++;
   }
 
   void dump() {
-    std::map<int,int>::iterator i;
-    for(i=csize.begin();i!=csize.end();i++) {
-      fprintf(stderr, "area %d: %d nodes\n", i->first, i->second);
-    }
-    for(i=cedges.begin();i!=cedges.end();i++) {
-      fprintf(stderr, "area %d: %d edges\n", i->first, i->second);
+    for(size_t i=0;i<red.size();i++) {
+      if(red[i])
+        fprintf(stderr, "area %d: %d red %d black nodes, %d edges\n", i, red[i], black[i], cedges[i]);
     }
     c.dump();
   }
   int component(const position &p) { return c(p); }
-  int connectedarea(int component) { return csize[component]; }
-  int connectedarea(const position &p) { return csize[c(p)]; }
+  int connectedarea(int component) { return red[component]+black[component]; }
+  int connectedarea(const position &p) { return red[c(p)]+black[c(p)]; }
+  // number of fillable squares in area when starting on 'startcolor' (assuming starting point is not included)
+  int fillablearea(int component, int startcolor) {
+    if(startcolor) { // start on red?  then moves are black-red-black-red-black (2 red, 3 black: 5; 3 red 3 black: 6; 4 red 3 black
+      return 2*_min(red[component]-1, black[component]) +
+        (black[component] >= red[component] ? 1 : 0);
+    } else { // moves are red-black-red-black-red
+      return 2*_min(red[component], black[component]-1) +
+        (red[component] >= black[component] ? 1 : 0);
+    }
+  }
+  // number of fillable squares starting from p (not including p)
+  int fillablearea(const position &p) { return fillablearea(c(p), color(p)); }
   int connectedvalue(int component) { return cedges[component]; }
   int connectedvalue(const position &p) { return cedges[c(p)]; }
 private:
@@ -326,9 +339,9 @@ static volatile bool _timed_out = false;
 static int _ab_runs=0;
 static int _spacefill_runs=0;
 
-void _alrm_handler(int sig) { _timed_out = true; }
+static void _alrm_handler(int sig) { _timed_out = true; }
 
-void reset_timer(long t)
+static void reset_timer(long t)
 {
   _timer = _get_time();
   itimerval timer;
@@ -342,18 +355,11 @@ void reset_timer(long t)
   _timeout = t;
 }
 
-void stop_timer(void)
-{
-  itimerval timer = { { 0, 0 }, { 0, 0 } };
-  setitimer(ITIMER_REAL, &timer, NULL);
-}
-
-
-long elapsed_time() { return _get_time() - _timer; }
+static long elapsed_time() { return _get_time() - _timer; }
 // }}}
 
 // {{{ Dijkstra's
-void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
+static void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
 {
   static std::vector<std::vector<position> > Q;
   static Map<int> loc;
@@ -402,7 +408,7 @@ void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
 
 // {{{ space-filling
 
-int floodfill(Components &ca, position s, bool fixup=true)
+static int floodfill(Components &ca, position s, bool fixup=true)
 {
   // flood fill heuristic: choose to remove as few edges from the graph as
   // possible (in other words, move onto the square with the lowest degree)
@@ -411,7 +417,7 @@ int floodfill(Components &ca, position s, bool fixup=true)
   for(int m=0;m<4;m++) {
     position p = s.next(m);
     if(M(p)) continue;
-    int v = ca.connectedvalue(p) + ca.connectedarea(p) - 1 - 2*degree(p) -
+    int v = ca.connectedvalue(p) + ca.fillablearea(p) - 1 - 2*degree(p) -
       4*potential_articulation(p);
     if(v > bestv) { bestv = v; b = p; }
   }
@@ -424,9 +430,9 @@ int floodfill(Components &ca, position s, bool fixup=true)
 }
 
 // returns spaces unused (wasted); idea is to minimize waste
-int _spacefill(int &move, Components &ca, position p, int itr) {
+static int _spacefill(int &move, Components &ca, position p, int itr) {
   int bestv = 0;
-  int spacesleft = ca.connectedarea(p)-1;
+  int spacesleft = ca.fillablearea(p)-1;
   if(degree(p) == 0) { move=1; return 0; }
   if(_timed_out) {
     return 0;
@@ -447,10 +453,10 @@ int _spacefill(int &move, Components &ca, position p, int itr) {
 }
 
 // space-filling iterative deepening search
-int next_move_spacefill(Components &ca)
+static int next_move_spacefill(Components &ca)
 {
   int itr;
-  int area = ca.connectedarea(curstate.p[0])-1;
+  int area = ca.fillablearea(curstate.p[0])-1;
   int bestv = 0, bestm = 1;
   for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !_timed_out;itr++) {
     int m;
@@ -473,7 +479,7 @@ int next_move_spacefill(Components &ca)
 // {{{ heuristic board evaluation
 
 static int _art_counter=0;
-void reset_articulations()
+static void reset_articulations()
 {
   _art_counter=0;
   low.clear();
@@ -484,7 +490,7 @@ void reset_articulations()
 // calculate articulation vertices within our voronoi region
 // algorithm taken from http://www.eecs.wsu.edu/~holder/courses/CptS223/spr08/slides/graphapps.pdf
 // DFS traversal of graph
-void calc_articulations(Map<int> &dp0, Map<int> &dp1, const position &v, int parent=-1)
+static void calc_articulations(Map<int> &dp0, Map<int> &dp1, const position &v, int parent=-1)
 {
   int nodenum = ++_art_counter;
   low(v) = num(v) = nodenum; // rule 1
@@ -513,7 +519,7 @@ void calc_articulations(Map<int> &dp0, Map<int> &dp1, const position &v, int par
 // returns the maximum "weight" of connected reachable components: we find the
 // "region" bounded by all articulation points, traverse each adjacent region
 // recursively, and return the maximum traversable area
-int _explore_space(Map<int> &dp0, Map<int> &dp1, std::vector<position> &exits, const position &v)
+static int _explore_space(Map<int> &dp0, Map<int> &dp1, std::vector<position> &exits, const position &v)
 {
   int nodecount=1, edgecount=0, childcount=0;
   num(v) = 0;
@@ -551,7 +557,7 @@ int _explore_space(Map<int> &dp0, Map<int> &dp1, std::vector<position> &exits, c
   //return edgecount+childcount;
 }
 
-int max_articulated_space(Map<int> &dp0, Map<int> &dp1, const position &v)
+static int max_articulated_space(Map<int> &dp0, Map<int> &dp1, const position &v)
 {
   std::vector<position> exits;
   int space = _explore_space(dp0,dp1,exits,v);
@@ -566,7 +572,7 @@ int max_articulated_space(Map<int> &dp0, Map<int> &dp1, const position &v)
   return space+maxchild;
 }
 
-int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
+static int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
 {
   dijkstra(dp0, s.p[0], cp, comp);
   dijkstra(dp1, s.p[1], cp, comp);
@@ -649,7 +655,7 @@ int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
 }
 
 static int evaluations=0;
-int _evaluate_board(gamestate s, int player, bool vis=false)
+static int _evaluate_board(gamestate s, int player, bool vis=false)
 {
   assert(player == 0); // we're always searching an even number of plies
 
@@ -682,8 +688,10 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
   // since each bot is in a separate component by definition here, it's OK to
   // destructively update cp for floodfill()
 #if VERBOSE >= 2
-  int cc0 = cp.connectedarea(s.p[0]);
-  int cc1 = cp.connectedarea(s.p[1]);
+  int cc0 = cp.connectedarea(s.p[0])-1;
+  int cc1 = cp.connectedarea(s.p[1])-1;
+  int cf0 = cp.fillablearea(s.p[0]);
+  int cf1 = cp.fillablearea(s.p[1]);
 #endif
   int _m;
   //int ff0 = floodfill(cp, s.p[0], false);
@@ -694,7 +702,7 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
   if(player == 1) v = -v;
 #if VERBOSE >= 2
   if(vis) {
-    fprintf(stderr, "player=%d connectedarea value: %d (0:%d/%d 1:%d/%d)\n", player, v, ff0,cc0, ff1,cc1);
+    fprintf(stderr, "player=%d connectedarea value: %d (0:%d/%d/%d 1:%d/%d/%d)\n", player, v, ff0,cf0,cc0, ff1,cf1,cc1);
   }
 #endif
   return v;
@@ -705,7 +713,7 @@ int _evaluate_board(gamestate s, int player, bool vis=false)
 
 // do an iterative-deepening search on all moves and see if we can find a move
 // sequence that cuts off our opponent
-int _alphabeta(char *moves, gamestate s, int player, int a, int b, int itr)
+static int _alphabeta(char *moves, gamestate s, int player, int a, int b, int itr)
 {
   // base cases: no more moves?  draws?
   *moves=1; // set default move
@@ -793,7 +801,7 @@ int _alphabeta(char *moves, gamestate s, int player, int a, int b, int itr)
   return a;
 }
 
-int next_move_alphabeta()
+static int next_move_alphabeta()
 {
   int itr;
   int lastv = -INT_MAX, lastm = 1;
@@ -836,7 +844,7 @@ int next_move_alphabeta()
 }
 // }}}
 
-int next_move() {
+static int next_move() {
   Components cp(M);
 #if VERBOSE >= 2
   cp.dump();
