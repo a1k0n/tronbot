@@ -110,7 +110,7 @@ static Map<char> M;
 static Map<int> dp0, dp1;
 static Map<int> low, num, articd; // for articulation point finding
 static gamestate curstate;
-static char _killer[DEPTH_MAX*2+1];
+static char _killer[DEPTH_MAX*2+2];
 static int _maxitr=0;
 
 // {{{ imported map update garbage from original code
@@ -190,7 +190,8 @@ static inline int color(position x) { return (x.x ^ x.y)&1; } // convention: 1=r
 static inline int color(int x, int y) { return (x ^ y)&1; } // convention: 1=red, 0=black
 
 static int degree(position x) {
-  return 4 - M(x.next(1)) - M(x.next(2)) - M(x.next(3)) - M(x.next(0));
+  int idx = x.x+x.y*M.width;
+  return 4 - M(idx-1) - M(idx+1) - M(idx-M.width) - M(idx+M.width);
 }
 
 static int degree(int idx) {
@@ -283,7 +284,7 @@ struct Components {
   void dump() {
     for(size_t i=0;i<red.size();i++) {
       if(red[i])
-        fprintf(stderr, "area %d: %d red %d black nodes, %d edges\n", i, red[i], black[i], cedges[i]);
+        fprintf(stderr, "area %d: %d red %d black nodes, %d edges\n", (int)i, red[i], black[i], cedges[i]);
     }
     c.dump();
   }
@@ -417,7 +418,7 @@ static int floodfill(Components &ca, position s, bool fixup=true)
   for(int m=0;m<4;m++) {
     position p = s.next(m);
     if(M(p)) continue;
-    int v = ca.connectedvalue(p) + ca.fillablearea(p) - 1 - 2*degree(p) -
+    int v = ca.connectedvalue(p) + ca.fillablearea(p) - 2*degree(p) -
       4*potential_articulation(p);
     if(v > bestv) { bestv = v; b = p; }
   }
@@ -432,7 +433,7 @@ static int floodfill(Components &ca, position s, bool fixup=true)
 // returns spaces unused (wasted); idea is to minimize waste
 static int _spacefill(int &move, Components &ca, position p, int itr) {
   int bestv = 0;
-  int spacesleft = ca.fillablearea(p)-1;
+  int spacesleft = ca.fillablearea(p);
   if(degree(p) == 0) { move=1; return 0; }
   if(_timed_out) {
     return 0;
@@ -456,7 +457,7 @@ static int _spacefill(int &move, Components &ca, position p, int itr) {
 static int next_move_spacefill(Components &ca)
 {
   int itr;
-  int area = ca.fillablearea(curstate.p[0])-1;
+  int area = ca.fillablearea(curstate.p[0]);
   int bestv = 0, bestm = 1;
   for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !_timed_out;itr++) {
     int m;
@@ -690,14 +691,16 @@ static int _evaluate_board(gamestate s, int player, bool vis=false)
 #if VERBOSE >= 2
   int cc0 = cp.connectedarea(s.p[0])-1;
   int cc1 = cp.connectedarea(s.p[1])-1;
+#endif
   int cf0 = cp.fillablearea(s.p[0]);
   int cf1 = cp.fillablearea(s.p[1]);
-#endif
-  int _m;
   //int ff0 = floodfill(cp, s.p[0], false);
   //int ff1 = floodfill(cp, s.p[1], false);
-  int ff0 = _spacefill(_m, cp, s.p[0], 1);
-  int ff1 = _spacefill(_m, cp, s.p[1], 1);
+  //int _m;
+  //int ff0 = _spacefill(_m, cp, s.p[0], 1);
+  //int ff1 = _spacefill(_m, cp, s.p[1], 1);
+  int ff0 = cf0; // use fillablearea for floodfill estimation
+  int ff1 = cf1;
   int v = 10000*(ff0-ff1);
   if(player == 1) v = -v;
 #if VERBOSE >= 2
@@ -719,15 +722,19 @@ static int _alphabeta(char *moves, gamestate s, int player, int a, int b, int it
   *moves=1; // set default move
   _ab_runs++;
   if(s.p[0] == s.p[1]) { return DRAW_PENALTY; } // crash!  draw!
-  if(degree(s.p[player]) == 0) {
-    if(degree(s.p[player^1]) == 0) { // both boxed in; draw
+  int dp0 = degree(s.p[player]),
+      dp1 = degree(s.p[player^1]);
+  if(dp0 == 0) {
+    if(dp1 == 0) { // both boxed in; draw
       return DRAW_PENALTY;
     }
     return -INT_MAX;
   }
-  if(degree(s.p[player^1]) == 0) {
+  if(dp1 == 0) {
     // choose any move
-    for(int m=0;m<4;m++) if(!M(s.p[player].next(m))) break;
+    int m;
+    for(m=0;m<4;m++) if(!M(s.p[player].next(m))) break;
+    *moves = m;
     return INT_MAX;
   }
 
@@ -756,10 +763,38 @@ static int _alphabeta(char *moves, gamestate s, int player, int a, int b, int it
           s.p[1].x, s.p[1].y, s.m[1], player, a,b);
 #endif
 
+#if 0
+  // "singularity enhancement": if we have only one valid move, then just
+  // deepen the search assuming that move without using up an iteration count
+  if(dp0 == 1) {
+    // choose only move
+    int m;
+    for(m=0;m<4;m++) if(!M(s.p[player].next(m))) break;
+    gamestate r = s;
+    r.m[player] = m;
+    if(player == 1) {
+      r.p[0] = s.p[0].next(r.m[0]);
+      r.p[1] = s.p[1].next(r.m[1]);
+      M(r.p[0]) = 1;
+      M(r.p[1]) = 1;
+    }
+    *moves = m;
+    int a_ = -_alphabeta(moves+1, r, player^1, -b, -a, itr + (player == 0 ? 1 : -1));
+    // undo game state update
+    if(player == 1) {
+      M(r.p[0]) = 0;
+      M(r.p[1]) = 0;
+      r.p[0] = s.p[0];
+      r.p[1] = s.p[1];
+    }
+    return a_;
+  }
+#endif
+
   // periodically check timeout.  if we do time out, give up, we can't do any
   // more work; whatever we found so far will have to do
   int kill = _killer[_maxitr-itr];
-  char bestmoves[DEPTH_MAX*2+1];
+  char bestmoves[DEPTH_MAX*2+2];
   memset(bestmoves, 0, itr);
   for(int _m=-1;_m<4 && !_timed_out;_m++) {
     // convoluted logic: do "killer heuristic" move first
@@ -806,7 +841,7 @@ static int next_move_alphabeta()
   int itr;
   int lastv = -INT_MAX, lastm = 1;
   evaluations=0;
-  char moves[DEPTH_MAX*2+1];
+  char moves[DEPTH_MAX*2+2];
   memset(moves, 0, sizeof(moves));
   for(itr=DEPTH_INITIAL;itr<DEPTH_MAX && !_timed_out;itr++) {
     _maxitr = itr*2;
