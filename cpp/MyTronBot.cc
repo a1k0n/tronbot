@@ -15,7 +15,7 @@
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
 #define DRAW_PENALTY 0 // -itr // -500
-#define VERBOSE 0
+#define VERBOSE 1
 
 // determined empirically through ../util/examine.cc on 11691 games
 #define K1 55
@@ -547,6 +547,7 @@ static int calc_articulations(Map<int> *dp0, Map<int> *dp1, const position &v, i
 static colorcount _explore_space(Map<int> *dp0, Map<int> *dp1, std::vector<position> &exits, const position &v)
 {
   colorcount c(0,0,0,0);
+  if(num(v) == 0) return c; // redundant; already explored
   c(v) ++;
   num(v) = 0;
   if(articd(v)) {
@@ -555,7 +556,7 @@ static colorcount _explore_space(Map<int> *dp0, Map<int> *dp1, std::vector<posit
       position w = v.next(m);
       if(M(w)) continue;
       c.edges++;
-      if(dp0 && (*dp0)(w) >= (*dp1)(w)) { c.front = (*dp0)(v); continue; }
+      if(dp0 && (*dp0)(w) >= (*dp1)(w)) { c.front=1; continue; }
       if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
       exits.push_back(w);
     }
@@ -567,11 +568,10 @@ static colorcount _explore_space(Map<int> *dp0, Map<int> *dp1, std::vector<posit
       c.edges++;
 
       // filter out nodes not in our voronoi region
-      if(dp0 && (*dp0)(w) >= (*dp1)(w)) { c.front = (*dp0)(v); continue; }
+      if(dp0 && (*dp0)(w) >= (*dp1)(w)) { c.front=1; continue; }
 
       if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
       if(articd(w)) { // is this vertex articulated?  then add it as an exit and don't traverse it yet
-        num(w) = 0; // ensure only one copy gets pushed in here
         exits.push_back(w);
       } else {
         c = c + _explore_space(dp0,dp1,exits,w);
@@ -587,7 +587,7 @@ static colorcount max_articulated_space(Map<int> *dp0, Map<int> *dp1, const posi
 {
   std::vector<position> exits;
   colorcount space = _explore_space(dp0,dp1,exits,v);
-  //fprintf(stderr, "space@%d,%d = (%d,%d,%d) exits: ", v.x,v.y, space.red, space.black, space.edges);
+  //fprintf(stderr, "space@%d,%d = (%d,%d,%d,%d) exits: ", v.x,v.y, space.red, space.black, space.edges, space.front);
   //for(size_t i=0;i<exits.size();i++) fprintf(stderr, "%d,%d ", exits[i].x, exits[i].y);
   //fprintf(stderr, "\n");
   colorcount maxspace = space;
@@ -602,17 +602,17 @@ static colorcount max_articulated_space(Map<int> *dp0, Map<int> *dp1, const posi
     colorcount child = max_articulated_space(dp0,dp1,exits[i]);
     // child includes our exit node
     int steps = num_fillable(child, exitcolor);
-    if(!child.front && !space.front) steps += localsteps[exitcolor];
-    else steps += child.front;
+    if(!child.front) steps += localsteps[exitcolor];
+    else steps += (*dp0)(exits[i])-1;
     // now we need to figure out how to connect spaces via colored articulation vertices
     // exits[i] gets counted in the child space
+    //fprintf(stderr, "space@%d,%d exit #%d steps=%d %s\n", v.x, v.y, i, steps, steps > maxsteps ? "new max" : "");
     if(steps > maxsteps) {
       maxsteps=steps;
-      //fprintf(stderr, "space@%d,%d exit #%d steps=%d; new max\n", v.x, v.y, i, steps);
       if(!child.front) {
         maxspace = space + child;
       } else {
-        maxspace = space;
+        maxspace = child;
       }
     }
   }
@@ -625,12 +625,12 @@ static int _evaluate_territory(const gamestate &s, Components &cp, int comp, boo
   dijkstra(dp1, s.p[1], cp, comp);
   reset_articulations();
   M(s.p[0])=0; M(s.p[1])=0;
-  int a0 = calc_articulations(&dp0, &dp1, s.p[0]),
-      a1 = calc_articulations(&dp1, &dp0, s.p[1]);
+  calc_articulations(&dp0, &dp1, s.p[0]);
+  calc_articulations(&dp1, &dp0, s.p[1]);
   colorcount ccount0 = max_articulated_space(&dp0, &dp1, s.p[0]),
              ccount1 = max_articulated_space(&dp1, &dp0, s.p[1]);
-  int nc0_ = K1*(ccount0.front + num_fillable(ccount0, color(s.p[0]))) + K2*ccount0.edges + K3*a0,
-      nc1_ = K1*(ccount1.front + num_fillable(ccount1, color(s.p[1]))) + K2*ccount1.edges + K3*a1;
+  int nc0_ = K1*(ccount0.front + num_fillable(ccount0, color(s.p[0]))) + K2*ccount0.edges,
+      nc1_ = K1*(ccount1.front + num_fillable(ccount1, color(s.p[1]))) + K2*ccount1.edges;
   M(s.p[0])=1; M(s.p[1])=1;
   int nodecount = nc0_ - nc1_;
 #if VERBOSE >= 2
@@ -660,7 +660,9 @@ static int _evaluate_territory(const gamestate &s, Components &cp, int comp, boo
       }
       fprintf(stderr,"\n");
     }
-    fprintf(stderr, "nodecount: %d (0: %d/%d, 1: %d/%d)\n", nodecount, nc0_, cp.fillablearea(s.p[0]), nc1_, cp.fillablearea(s.p[1]));
+    fprintf(stderr, "nodecount: %d 0: %d/(r%db%de%dT%d), 1: %d/(r%db%de%dT%d)\n", nodecount,
+            nc0_, ccount0.red, ccount0.black, ccount0.edges, cp.fillablearea(s.p[0]),
+            nc1_, ccount1.red, ccount1.black, ccount1.edges, cp.fillablearea(s.p[1]));
 #if 0
     for(int j=0;j<M.height;j++) {
       for(int i=0;i<M.width;i++) {
