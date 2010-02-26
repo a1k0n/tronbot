@@ -15,7 +15,7 @@
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
 #define DRAW_PENALTY 0 // -itr // -500
-#define VERBOSE 1
+#define VERBOSE 0
 
 // determined empirically through ../util/examine.cc on 11691 games
 #define K1 55
@@ -609,7 +609,7 @@ static colorcount max_articulated_space(Map<int> *dp0, Map<int> *dp1, const posi
     if(steps > maxsteps) {
       maxsteps=steps;
       //fprintf(stderr, "space@%d,%d exit #%d steps=%d; new max\n", v.x, v.y, i, steps);
-      if(!child.front && !space.front) {
+      if(!child.front) {
         maxspace = space + child;
       } else {
         maxspace = space;
@@ -660,7 +660,7 @@ static int _evaluate_territory(const gamestate &s, Components &cp, int comp, boo
       }
       fprintf(stderr,"\n");
     }
-    fprintf(stderr, "nodecount: %d (0: %d, 1: %d)\n", nodecount, nc0_, nc1_);
+    fprintf(stderr, "nodecount: %d (0: %d/%d, 1: %d/%d)\n", nodecount, nc0_, cp.fillablearea(s.p[0]), nc1_, cp.fillablearea(s.p[1]));
 #if 0
     for(int j=0;j<M.height;j++) {
       for(int i=0;i<M.width;i++) {
