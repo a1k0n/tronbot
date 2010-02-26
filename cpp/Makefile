@@ -1,7 +1,7 @@
 CXXFLAGS = -g -O3 -funroll-loops -Wall
 
 OBJS = MyTronBot.o
-REFBOT = ./MyTronBot8
+REFBOT = ./MyTronBot10
 
 MyTronBot: $(OBJS)
 	$(CXX) $(CXXFLAGS) -o MyTronBot $(OBJS)

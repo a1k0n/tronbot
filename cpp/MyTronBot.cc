@@ -17,6 +17,11 @@
 #define DRAW_PENALTY 0 // -itr // -500
 #define VERBOSE 1
 
+// determined empirically through ../util/examine.cc on 11691 games
+#define K1 55
+#define K2 194
+#define K3 3
+
 // {{{ position
 struct position {
   static const char dx[4], dy[4];
@@ -189,6 +194,26 @@ bool map_update()
 static inline int color(position x) { return (x.x ^ x.y)&1; } // convention: 1=red, 0=black
 static inline int color(int x, int y) { return (x ^ y)&1; } // convention: 1=red, 0=black
 
+struct colorcount {
+  int red, black, edges;
+  colorcount() {}
+  colorcount(int r, int b, int e): red(r), black(b), edges(e) {}
+  int& operator()(const position &x) { return color(x) ? red : black; }
+};
+
+static colorcount operator+(const colorcount &a, const colorcount &b) { return colorcount(a.red+b.red, a.black+b.black, a.edges+b.edges); }
+
+// number of fillable squares in area when starting on 'startcolor' (assuming starting point is not included)
+int num_fillable(const colorcount &c, int startcolor) {
+  if(startcolor) { // start on red?  then moves are black-red-black-red-black (2 red, 3 black: 5; 3 red 3 black: 6; 4 red 3 black
+    return 2*_min(c.red-1, c.black) +
+      (c.black >= c.red ? 1 : 0);
+  } else { // moves are red-black-red-black-red
+    return 2*_min(c.red, c.black-1) +
+      (c.red >= c.black ? 1 : 0);
+  }
+}
+
 static int degree(position x) {
   int idx = x.x+x.y*M.width;
   return 4 - M(idx-1) - M(idx+1) - M(idx-M.width) - M(idx+M.width);
@@ -293,13 +318,7 @@ struct Components {
   int connectedarea(const position &p) { return red[c(p)]+black[c(p)]; }
   // number of fillable squares in area when starting on 'startcolor' (assuming starting point is not included)
   int fillablearea(int component, int startcolor) {
-    if(startcolor) { // start on red?  then moves are black-red-black-red-black (2 red, 3 black: 5; 3 red 3 black: 6; 4 red 3 black
-      return 2*_min(red[component]-1, black[component]) +
-        (black[component] >= red[component] ? 1 : 0);
-    } else { // moves are red-black-red-black-red
-      return 2*_min(red[component], black[component]-1) +
-        (red[component] >= black[component] ? 1 : 0);
-    }
+    return num_fillable(colorcount(red[component], black[component], 0), startcolor);
   }
   // number of fillable squares starting from p (not including p)
   int fillablearea(const position &p) { return fillablearea(c(p), color(p)); }
@@ -491,20 +510,23 @@ static void reset_articulations()
 // calculate articulation vertices within our voronoi region
 // algorithm taken from http://www.eecs.wsu.edu/~holder/courses/CptS223/spr08/slides/graphapps.pdf
 // DFS traversal of graph
-static void calc_articulations(Map<int> &dp0, Map<int> &dp1, const position &v, int parent=-1)
+static int calc_articulations(Map<int> *dp0, Map<int> *dp1, const position &v, int parent=-1)
 {
   int nodenum = ++_art_counter;
   low(v) = num(v) = nodenum; // rule 1
   int children=0;
+  int count=0;
   for(int m=0;m<4;m++) {
     position w = v.next(m);
     if(M(w)) continue;
-    if(dp0(w) >= dp1(w)) continue; // filter out nodes not in our voronoi region
+    if(dp0 && (*dp0)(w) >= (*dp1)(w)) continue; // filter out nodes not in our voronoi region
     if(!num(w)) { // forward edge
       children++;
-      calc_articulations(dp0, dp1, w, nodenum);
-      if(low(w) >= nodenum && parent != -1)
+      count += calc_articulations(dp0, dp1, w, nodenum);
+      if(low(w) >= nodenum && parent != -1) {
         articd(v) = 1;
+        count++;
+      }
       if(low(w) < low(v)) low(v) = low(w);   // rule 3
     } else {
       if(num(w) < nodenum) { // back edge
@@ -513,24 +535,27 @@ static void calc_articulations(Map<int> &dp0, Map<int> &dp1, const position &v, 
     }
   }
   if(parent == -1 && children > 1) {
+    count++;
     articd(v) = 1;
   }
+  return count;
 }
 
 // returns the maximum "weight" of connected reachable components: we find the
 // "region" bounded by all articulation points, traverse each adjacent region
 // recursively, and return the maximum traversable area
-static int _explore_space(Map<int> &dp0, Map<int> &dp1, std::vector<position> &exits, const position &v)
+static colorcount _explore_space(Map<int> *dp0, Map<int> *dp1, std::vector<position> &exits, const position &v)
 {
-  int nodecount=1, edgecount=0, childcount=0;
+  colorcount c(0,0,0);
+  c(v) ++;
   num(v) = 0;
   if(articd(v)) {
     // we're an articulation vertex; nothing to do but populate the exits
     for(int m=0;m<4;m++) {
       position w = v.next(m);
       if(M(w)) continue;
-      edgecount++;
-      if(dp0(w) >= dp1(w)) { continue; }
+      c.edges++;
+      if(dp0 && (*dp0)(w) >= (*dp1)(w)) { continue; }
       if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
       exits.push_back(w);
     }
@@ -539,36 +564,50 @@ static int _explore_space(Map<int> &dp0, Map<int> &dp1, std::vector<position> &e
     for(int m=0;m<4;m++) {
       position w = v.next(m);
       if(M(w)) continue;
-      edgecount++;
+      c.edges++;
 
       // filter out nodes not in our voronoi region
-      if(dp0(w) >= dp1(w)) { continue; }
+      if(dp0 && (*dp0)(w) >= (*dp1)(w)) { continue; }
 
       if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
       if(articd(w)) { // is this vertex articulated?  then add it as an exit and don't traverse it yet
         num(w) = 0; // ensure only one copy gets pushed in here
         exits.push_back(w);
       } else {
-        childcount += _explore_space(dp0,dp1,exits,w);
+        c = c + _explore_space(dp0,dp1,exits,w);
       }
     }
   }
-  return 51*nodecount+170*edgecount+8*potential_articulation(v)+childcount;
-  //return nodecount+edgecount+childcount;
-  //return edgecount+childcount;
+  return c;
 }
 
-static int max_articulated_space(Map<int> &dp0, Map<int> &dp1, const position &v)
+// this assumes the space is separated into a DAG of chambers
+// if cycles or bidirectional openings really do exist, then we just get a bad estimate :/
+static colorcount max_articulated_space(Map<int> *dp0, Map<int> *dp1, const position &v)
 {
   std::vector<position> exits;
-  int space = _explore_space(dp0,dp1,exits,v);
-  //fprintf(stderr, "space@%d,%d = %d exits: ", v.x,v.y, space);
+  colorcount space = _explore_space(dp0,dp1,exits,v);
+  //fprintf(stderr, "space@%d,%d = (%d,%d,%d) exits: ", v.x,v.y, space.red, space.black, space.edges);
   //for(size_t i=0;i<exits.size();i++) fprintf(stderr, "%d,%d ", exits[i].x, exits[i].y);
   //fprintf(stderr, "\n");
-  int maxchild = 0;
+  colorcount maxchild(0,0,0);
+  int maxsteps=0;
+  int entrancecolor = color(v);
+  int localsteps[2] = {
+    num_fillable(colorcount(space.red, space.black+1, 0), entrancecolor),
+    num_fillable(colorcount(space.red+1, space.black, 0), entrancecolor)};
   for(size_t i=0;i<exits.size();i++) {
-    int child = max_articulated_space(dp0,dp1,exits[i]);
-    if(child > maxchild) maxchild = child;
+    int exitcolor = color(exits[i]);
+    // space includes our entrance but not our exit node
+    colorcount child = max_articulated_space(dp0,dp1,exits[i]);
+    // child includes our exit node
+    int steps = localsteps[exitcolor] + num_fillable(child, exitcolor);
+    // now we need to figure out how to connect spaces via colored articulation vertices
+    // exits[i] gets counted in the child space
+    if(steps > maxsteps) {
+      //fprintf(stderr, "space@%d,%d exit #%d steps=%d; new max\n", v.x, v.y, i, steps);
+      maxsteps=steps; maxchild = child;
+    }
   }
   return space+maxchild;
 }
@@ -579,24 +618,12 @@ static int _evaluate_territory(const gamestate &s, Components &cp, int comp, boo
   dijkstra(dp1, s.p[1], cp, comp);
   reset_articulations();
   M(s.p[0])=0; M(s.p[1])=0;
-  calc_articulations(dp0, dp1, s.p[0]);
-  calc_articulations(dp1, dp0, s.p[1]);
-  int nc0_ = max_articulated_space(dp0, dp1, s.p[0]),
-      nc1_ = max_articulated_space(dp1, dp0, s.p[1]);
-#if VERBOSE >= 2
-  int nc0=0, nc1=0;
-  for(int j=0;j<M.height;j++)
-    for(int i=0;i<M.width;i++) {
-      position p(i,j);
-      int diff = dp0(i,j) - dp1(i,j);
-      // if the opponent's distance is shorter than ours, then this is "their"
-      // node, otherwise it's ours
-      //if(diff>0) { nc1 += degree(p); }//if(vis) fprintf(stderr, "nc1:(%d,%d)\n", p.x,p.y); }
-      //else if(diff<0) { nc0 += degree(p); }//if(vis) fprintf(stderr, "nc0:(%d,%d)\n", p.x,p.y); }
-      if(diff>0) { nc1 += 51 + 170*degree(p) + 8*potential_articulation(p); }
-      else if(diff<0) { nc0 += 51 + 170*degree(p) + 8*potential_articulation(p); }
-    }
-#endif
+  int a0 = calc_articulations(&dp0, &dp1, s.p[0]),
+      a1 = calc_articulations(&dp1, &dp0, s.p[1]);
+  colorcount ccount0 = max_articulated_space(&dp0, &dp1, s.p[0]),
+             ccount1 = max_articulated_space(&dp1, &dp0, s.p[1]);
+  int nc0_ = K1*num_fillable(ccount0, color(s.p[0])) + K2*ccount0.edges + K3*a0,
+      nc1_ = K1*num_fillable(ccount1, color(s.p[1])) + K2*ccount1.edges + K3*a1;
   M(s.p[0])=1; M(s.p[1])=1;
   int nodecount = nc0_ - nc1_;
 #if VERBOSE >= 2
@@ -679,28 +706,32 @@ static int _evaluate_board(gamestate s, int player, bool vis=false)
   }
 #endif
   int comp;
-  // greedily follow the maximum territory gain strategy until we partition
+  // follow the maximum territory gain strategy until we partition
   // space or crash
   if((comp = cp.component(s.p[0])) == cp.component(s.p[1])) {
     int v = _evaluate_territory(s, cp, comp, vis);
     return v;
   }
 
+  reset_articulations();
+  M(s.p[0])=0; M(s.p[1])=0;
+  calc_articulations(NULL, NULL, s.p[0]);
+  calc_articulations(NULL, NULL, s.p[1]);
+
   // since each bot is in a separate component by definition here, it's OK to
   // destructively update cp for floodfill()
 #if VERBOSE >= 2
   int cc0 = cp.connectedarea(s.p[0])-1;
   int cc1 = cp.connectedarea(s.p[1])-1;
-#endif
   int cf0 = cp.fillablearea(s.p[0]);
   int cf1 = cp.fillablearea(s.p[1]);
-  //int ff0 = floodfill(cp, s.p[0], false);
-  //int ff1 = floodfill(cp, s.p[1], false);
-  //int _m;
-  //int ff0 = _spacefill(_m, cp, s.p[0], 1);
-  //int ff1 = _spacefill(_m, cp, s.p[1], 1);
-  int ff0 = cf0; // use fillablearea for floodfill estimation
-  int ff1 = cf1;
+#endif
+  // now ideally we would separate regions by articulation vertices and then
+  // find the maximum traversable area.
+  colorcount ccount0 = max_articulated_space(NULL, NULL, s.p[0]),
+             ccount1 = max_articulated_space(NULL, NULL, s.p[1]);
+  int ff0 = num_fillable(ccount0, color(s.p[0])),
+      ff1 = num_fillable(ccount1, color(s.p[1]));
   int v = 10000*(ff0-ff1);
   if(player == 1) v = -v;
 #if VERBOSE >= 2
@@ -708,6 +739,7 @@ static int _evaluate_board(gamestate s, int player, bool vis=false)
     fprintf(stderr, "player=%d connectedarea value: %d (0:%d/%d/%d 1:%d/%d/%d)\n", player, v, ff0,cf0,cc0, ff1,cf1,cc1);
   }
 #endif
+  M(s.p[0])=1; M(s.p[1])=1;
   return v;
 }
 // }}}
