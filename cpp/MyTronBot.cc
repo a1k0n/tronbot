@@ -195,13 +195,13 @@ static inline int color(position x) { return (x.x ^ x.y)&1; } // convention: 1=r
 static inline int color(int x, int y) { return (x ^ y)&1; } // convention: 1=red, 0=black
 
 struct colorcount {
-  int red, black, edges;
+  int red, black, edges, front;
   colorcount() {}
-  colorcount(int r, int b, int e): red(r), black(b), edges(e) {}
+  colorcount(int r, int b, int e, int f): red(r), black(b), edges(e), front(f) {}
   int& operator()(const position &x) { return color(x) ? red : black; }
 };
 
-static colorcount operator+(const colorcount &a, const colorcount &b) { return colorcount(a.red+b.red, a.black+b.black, a.edges+b.edges); }
+static colorcount operator+(const colorcount &a, const colorcount &b) { return colorcount(a.red+b.red, a.black+b.black, a.edges+b.edges, a.front+b.front); }
 
 // number of fillable squares in area when starting on 'startcolor' (assuming starting point is not included)
 int num_fillable(const colorcount &c, int startcolor) {
@@ -318,7 +318,7 @@ struct Components {
   int connectedarea(const position &p) { return red[c(p)]+black[c(p)]; }
   // number of fillable squares in area when starting on 'startcolor' (assuming starting point is not included)
   int fillablearea(int component, int startcolor) {
-    return num_fillable(colorcount(red[component], black[component], 0), startcolor);
+    return num_fillable(colorcount(red[component], black[component], 0,0), startcolor);
   }
   // number of fillable squares starting from p (not including p)
   int fillablearea(const position &p) { return fillablearea(c(p), color(p)); }
@@ -546,7 +546,7 @@ static int calc_articulations(Map<int> *dp0, Map<int> *dp1, const position &v, i
 // recursively, and return the maximum traversable area
 static colorcount _explore_space(Map<int> *dp0, Map<int> *dp1, std::vector<position> &exits, const position &v)
 {
-  colorcount c(0,0,0);
+  colorcount c(0,0,0,0);
   c(v) ++;
   num(v) = 0;
   if(articd(v)) {
@@ -555,7 +555,7 @@ static colorcount _explore_space(Map<int> *dp0, Map<int> *dp1, std::vector<posit
       position w = v.next(m);
       if(M(w)) continue;
       c.edges++;
-      if(dp0 && (*dp0)(w) >= (*dp1)(w)) { continue; }
+      if(dp0 && (*dp0)(w) >= (*dp1)(w)) { c.front = (*dp0)(v); continue; }
       if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
       exits.push_back(w);
     }
@@ -567,7 +567,7 @@ static colorcount _explore_space(Map<int> *dp0, Map<int> *dp1, std::vector<posit
       c.edges++;
 
       // filter out nodes not in our voronoi region
-      if(dp0 && (*dp0)(w) >= (*dp1)(w)) { continue; }
+      if(dp0 && (*dp0)(w) >= (*dp1)(w)) { c.front = (*dp0)(v); continue; }
 
       if(!num(w)) continue; // use 'num' from articulation vertex pass to mark nodes used
       if(articd(w)) { // is this vertex articulated?  then add it as an exit and don't traverse it yet
@@ -590,26 +590,33 @@ static colorcount max_articulated_space(Map<int> *dp0, Map<int> *dp1, const posi
   //fprintf(stderr, "space@%d,%d = (%d,%d,%d) exits: ", v.x,v.y, space.red, space.black, space.edges);
   //for(size_t i=0;i<exits.size();i++) fprintf(stderr, "%d,%d ", exits[i].x, exits[i].y);
   //fprintf(stderr, "\n");
-  colorcount maxchild(0,0,0);
+  colorcount maxspace = space;
   int maxsteps=0;
   int entrancecolor = color(v);
   int localsteps[2] = {
-    num_fillable(colorcount(space.red, space.black+1, 0), entrancecolor),
-    num_fillable(colorcount(space.red+1, space.black, 0), entrancecolor)};
+    num_fillable(colorcount(space.red, space.black+1, 0,0), entrancecolor),
+    num_fillable(colorcount(space.red+1, space.black, 0,0), entrancecolor)};
   for(size_t i=0;i<exits.size();i++) {
     int exitcolor = color(exits[i]);
     // space includes our entrance but not our exit node
     colorcount child = max_articulated_space(dp0,dp1,exits[i]);
     // child includes our exit node
-    int steps = localsteps[exitcolor] + num_fillable(child, exitcolor);
+    int steps = num_fillable(child, exitcolor);
+    if(!child.front && !space.front) steps += localsteps[exitcolor];
+    else steps += child.front;
     // now we need to figure out how to connect spaces via colored articulation vertices
     // exits[i] gets counted in the child space
     if(steps > maxsteps) {
+      maxsteps=steps;
       //fprintf(stderr, "space@%d,%d exit #%d steps=%d; new max\n", v.x, v.y, i, steps);
-      maxsteps=steps; maxchild = child;
+      if(!child.front && !space.front) {
+        maxspace = space + child;
+      } else {
+        maxspace = space;
+      }
     }
   }
-  return space+maxchild;
+  return maxspace;
 }
 
 static int _evaluate_territory(const gamestate &s, Components &cp, int comp, bool vis)
@@ -622,8 +629,8 @@ static int _evaluate_territory(const gamestate &s, Components &cp, int comp, boo
       a1 = calc_articulations(&dp1, &dp0, s.p[1]);
   colorcount ccount0 = max_articulated_space(&dp0, &dp1, s.p[0]),
              ccount1 = max_articulated_space(&dp1, &dp0, s.p[1]);
-  int nc0_ = K1*num_fillable(ccount0, color(s.p[0])) + K2*ccount0.edges + K3*a0,
-      nc1_ = K1*num_fillable(ccount1, color(s.p[1])) + K2*ccount1.edges + K3*a1;
+  int nc0_ = K1*(ccount0.front + num_fillable(ccount0, color(s.p[0]))) + K2*ccount0.edges + K3*a0,
+      nc1_ = K1*(ccount1.front + num_fillable(ccount1, color(s.p[1]))) + K2*ccount1.edges + K3*a1;
   M(s.p[0])=1; M(s.p[1])=1;
   int nodecount = nc0_ - nc1_;
 #if VERBOSE >= 2
@@ -653,7 +660,7 @@ static int _evaluate_territory(const gamestate &s, Components &cp, int comp, boo
       }
       fprintf(stderr,"\n");
     }
-    fprintf(stderr, "nodecount: %d (0: %d/%d, 1: %d/%d)\n", nodecount, nc0_,nc0, nc1_,nc1);
+    fprintf(stderr, "nodecount: %d (0: %d, 1: %d)\n", nodecount, nc0_, nc1_);
 #if 0
     for(int j=0;j<M.height;j++) {
       for(int i=0;i<M.width;i++) {
