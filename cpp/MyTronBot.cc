@@ -742,6 +742,16 @@ static int _evaluate_board(gamestate s, int player, bool vis=false)
   int ff0 = num_fillable(ccount0, color(s.p[0])),
       ff1 = num_fillable(ccount1, color(s.p[1]));
   int v = 10000*(ff0-ff1);
+  // if our estimate is really close, try some searching
+  if(v != 0 && abs(v) <= 30000) {
+    int _m;
+#if VERBOSE >= 2
+    if(vis) fprintf(stderr, "num_fillable %d %d too close to call; searching\n", ff0, ff1);
+#endif
+    ff0 = _spacefill(_m, cp, s.p[0], 3);
+    ff1 = _spacefill(_m, cp, s.p[1], 3);
+    v = 10000*(ff0-ff1);
+  }
   if(player == 1) v = -v;
 #if VERBOSE >= 2
   if(vis) {
