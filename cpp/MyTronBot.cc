@@ -10,12 +10,14 @@
 
 #include "artictbl.h"
 
-#define TIMEOUT_USEC 990000
-#define FIRSTMOVE_USEC 2950000
+#define TIMEOUT_USEC 9900
+#define FIRSTMOVE_USEC 29500
+//#define TIMEOUT_USEC 990000
+//#define FIRSTMOVE_USEC 2950000
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
 #define DRAW_PENALTY 0 // -itr // -500
-#define VERBOSE 1
+#define VERBOSE 2
 
 // determined empirically through ../util/examine.cc on 11691 games
 #define K1 55
@@ -636,6 +638,7 @@ static int _evaluate_territory(const gamestate &s, Components &cp, int comp, boo
 #if VERBOSE >= 2
   if(vis) {
     for(int j=0;j<M.height;j++) {
+      /*
       for(int i=0;i<M.width;i++) {
         if(dp0(i,j) == INT_MAX) fprintf(stderr,M(i,j) ? " #" : "  ");
         else fprintf(stderr,"%2d", dp0(i,j));
@@ -646,13 +649,20 @@ static int _evaluate_territory(const gamestate &s, Components &cp, int comp, boo
         else fprintf(stderr,"%2d", dp1(i,j));
       }
       fprintf(stderr," ");
+      */
+      fprintf(stderr, "~~~ ");
       for(int i=0;i<M.width;i++) {
         int d = dp1(i,j)-dp0(i,j);
-        if(articd(i,j))
-          fprintf(stderr,"-");
-        else if(d == INT_MAX || d == -INT_MAX)
+        if(position(i,j) == s.p[0])
+          fprintf(stderr,"A");
+        else if(position(i,j) == s.p[1])
+          fprintf(stderr,"B");
+//        else if(articd(i,j))
+//          fprintf(stderr,"-");
+        else if(d == INT_MAX || d == -INT_MAX || M(i,j))
           fprintf(stderr,"#");
-        else if(d == 0) fprintf(stderr,".");
+        else if(d == 0)
+          fprintf(stderr, ".");
         else {
           d = d<0 ? 2 : d>0 ? 1 : 0;
           fprintf(stderr,"%d", d);
@@ -938,12 +948,14 @@ static int next_move() {
 #endif
   M(curstate.p[0]) = 1;
   M(curstate.p[1]) = 1;
+  /*
   if(degree(curstate.p[0]) == 1) {
     // only one possible move we can make, so make it and don't waste any time
     for(int m=0;m<4;m++)
       if(!M(curstate.p[0].next(m)))
         return m;
   }
+  */
   if(cp.component(curstate.p[0]) == cp.component(curstate.p[1])) {
     // start-midgame: try to cut off our opponent
     return next_move_alphabeta();

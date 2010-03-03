@@ -1,0 +1,99 @@
+<p>I can't believe I won.
+
+<p>I can't believe I won <i>decisively</i> at all.
+
+<p>I've never won any programming contest before (although I did place in 3rd
+in the <a href="http://julian.togelius.com/mariocompetition2009/">Mario AI
+  contest</a> but there were only about 10 entrants).  Whenever I badly lose at
+an <a href="http://icfpcontest.org/">ICFP contest</a> I'm always anxious to see
+the post mortems of the people who did better than I did, and I imagine a lot
+of people are curious as to how I won, exactly.  So here's my post-mortem.
+
+<p>Before we get into it, note that all of my code is <a
+  href="http://github.com/a1k0n/tronbot/">on github here</a>.  The commit logs
+might be a mildly entertaining read.
+
+<p>The first thing I did was attempt to ignore this contest as long as
+possible, because month-long programming contests get me into a lot of trouble
+at work.  The game was the Tron light cycle game.  I've played variants of this
+game ever since I got one of <a
+  href="http://www.handheldmuseum.com/Tomy/Tron.htm">these</a> when I was in
+1st grade or so.  The most fun was my uncle's copy of <a
+  href="http://www.youtube.com/watch?v=BK_a8xV3O6w">Snafu for the
+  Intellivision</a> which we played at my Grandma's house all day long.  I've
+long wondered how to write a bot for it, because the AI on these usually isn't
+very smart.
+
+<p>But I finally gave in on the 9th, downloaded a starter pack, and attempted
+to make a simple semi-decent wall-hugging bot.  I quickly discovered a simple
+useful heuristic: the best rule for efficiently filling space is to always
+choose the move that removes the least number of edges from the graph.  In
+other words, go towards the space with the most walls for neighbors.  But!
+Avoid <a href="http://en.wikipedia.org/wiki/Cut_vertex">cut
+  vertices</a> (AKA articulation points), and if you have to enter a cut vertex,
+then always choose the largest space left over.  At this stage I wasn't
+actually calculating articulation points; I simply checked the 3x3 neighborhood
+of the square and made a lookup table of neighbor configurations that
+<i>might</i> be articulation points based on the 3x3 neighborhood.  This is
+what the <tt><a
+    href="http://github.com/a1k0n/tronbot/blob/a1k0nbot-2.18.2/cpp/MyTronBot.cc#L238">potential_articulation</a></tt>
+function does in my code, and <tt><a
+    href="http://github.com/a1k0n/tronbot/blob/a1k0nbot-2.18.2/cpp/artictbl.h#L1">artictbl.h</a></tt>
+is the lookup table.
+
+<p>I was, however, computing the connected components of the map.  This is a
+simple two-pass O(<i>NM</i>) algorithm for <i>N</i> squares in the map and
+<i>M</i> different components.  For each non-wall square in the map, traversed
+in raster order, merge it with the component above it (if there is no wall
+above) and do the same to its left (if there is no wall to the left).  If it
+connects two components, renumber based on the lowest index, maintaining an
+equivalence lookup table on the side (equivalence lookups are O(<i>M</i>) but
+really just linear scans of a tiny vector).  Then scan again and fixup the
+equivalences.  This is what the <tt><a
+    href="http://github.com/a1k0n/tronbot/blob/a1k0nbot-2.18.2/cpp/MyTronBot.cc#L243">Components</a></tt>
+structure is for; it has this algorithm and simple sometimes-O(1),
+sometimes-O(<i>NM</i>) update functions based on
+<tt>potential_articulation</tt> above.
+
+<p>I left it at that for the rest of the week and then Friday the 12th I was
+inspired by various posts on the official contest forum to implement <a
+  href="http://en.wikipedia.org/wiki/Minimax">minimax</a> with <a
+  href="http://en.wikipedia.org/wiki/Alpha-beta_pruning">alpha-beta
+  pruning</a>, and using the popular Voronoi heuristic for evaluating
+territory before the endgame.
+
+<p>The "Voronoi heuristic" works like this: for each spot on the map, find
+whether player 1 can reach it before player 2 does or vice versa.  This creates
+a <a
+  href="http://en.wikipedia.org/wiki/Voronoi_diagram">Voronoi diagram</a> with
+just two points which sort of winds around all the obstacles.  The best way to
+explain it is to show what it looks like during a game:
+
+<center><img src="voronoi.gif" /></center>
+
+<p>The light red area are all squares the red player can reach before the blue
+player can.  Similarly for the light blue squares.  If they're white, they're
+equidistant.  The heuristic value I used initially, and many other contestants
+used, was to add up the number of squares on each side and subtract.
+
+<p>Once the red player cuts the blue one off, they are no longer in the same
+connected component and then gameplay evaluation switches to "endgame" or
+"survival" mode, where you just try to outlast your opponent.  After this
+point, the minimax value was 1000*(size of player 2's connected component -
+size of player 1's connected component).  The factor of 1000 was just to reward
+certainty in an endgame vs. heuristic positional value.  Note that this was
+simply used to <i>predict</i> an endgame situation.  After the bot actually
+reached the endgame, it simply used the greedy wall-following heuristic
+described above, and it performed admirably for doing no searching at all.
+
+<p>I next noticed that my bot would make some fairly random moves in the early
+game, effectively cluttering its own space.  So I took a cue from my flood
+filling heuristic and added a territory bonus for the number of open neighbors
+each square in the territory had (effectively counting each "edge" twice).
+This led to automatic wall-hugging behavior when all else was equal.
+
+<p>At this point I had an extremely average bot that, due to the arbitrariness
+of the ranking up until the last week in the contest, briefly hit the #1 spot
+and then settled to a random spot on the first page.
+
+
