@@ -32,7 +32,7 @@ other words, go towards the space with the most walls for neighbors.  But!
 Avoid <a href="http://en.wikipedia.org/wiki/Cut_vertex">cut
   vertices</a> (AKA articulation points), and if you have to enter a cut vertex,
 then always choose the largest space left over.  At this stage I wasn't
-actually calculating articulation points; I simply checked the 3x3 neighborhood
+actually calculating articulation points; I just checked the 3x3 neighborhood
 of the square and made a lookup table of neighbor configurations that
 <i>might</i> be articulation points based on the 3x3 neighborhood.  This is
 what the <tt><a
@@ -79,10 +79,10 @@ used, was to add up the number of squares on each side and subtract.
 <p>Once the red player cuts the blue one off, they are no longer in the same
 connected component and then gameplay evaluation switches to "endgame" or
 "survival" mode, where you just try to outlast your opponent.  After this
-point, the minimax value was 1000*(size of player 2's connected component -
-size of player 1's connected component).  The factor of 1000 was just to reward
+point, the minimax value was 1000*(size of player 1's connected component -
+size of player 2's connected component).  The factor of 1000 was just to reward
 certainty in an endgame vs. heuristic positional value.  Note that this was
-simply used to <i>predict</i> an endgame situation.  After the bot actually
+only used to <i>predict</i> an endgame situation.  After the bot actually
 reached the endgame, it simply used the greedy wall-following heuristic
 described above, and it performed admirably for doing no searching at all.
 
@@ -92,8 +92,75 @@ filling heuristic and added a territory bonus for the number of open neighbors
 each square in the territory had (effectively counting each "edge" twice).
 This led to automatic wall-hugging behavior when all else was equal.
 
-<p>At this point I had an extremely average bot that, due to the arbitrariness
-of the ranking up until the last week in the contest, briefly hit the #1 spot
-and then settled to a random spot on the first page.
+<p>After fixing a lot of bugs, and finally realizing that when time runs out on
+a minimax search, you have to throw away the ply you're in the middle of
+searching and use the best move from the previous ply, I had an extremely
+average bot.  Due to the arbitrariness of the ranking up until the last week in
+the contest, it briefly hit the #1 spot and then settled to a random spot on
+the first page.  It was pretty hard to tell whether it was any good, but I was
+losing some games, so I figured it must not be.
 
+<p>I was out of ideas for a while and spent some time optimizing (I used
+Dijkstra's to do the Voronoi computation and I sped it up by using what I call
+a radix priority queue which is just a vector of stacks... see <a
+  href="http://github.com/a1k0n/tronbot/blob/a1k0nbot-2.18.2/cpp/MyTronBot.cc#L382"><tt>dijkstra</tt></a>).
+But it had been bothering me that my edge count/node count Voronoi heuristic
+was pretty arbitrary, and wondered if I could do any kind of inference to
+discover better ones.
+
+<p>Well, hundreds of thousands of games had been played on the contest server
+by this point, and they are extremely easy to download (the contest site's game
+viewer does an AJAX request to get some simple-to-parse data for the game), so
+I figured I'd try to do some data mining.  I wrote a <a
+  href="http://github.com/a1k0n/tronbot/blob/a1k0nbot-2.18.2/util/getgame.pl">quick
+  perl hack</a> to grab games from the site and output them in a format that
+Tron bots recognize.  Then I copied-and-pasted my code wholesale into
+<tt>examine.cc</tt> and marked it up so it would read in a game back-to-front,
+find the point at which the players enter separate components, guess what the
+optimal number of moves they could have made from that point forward, and then
+use the existing territory evaluation code on every turn before that and dump
+out some statistics.  The goal was to discover a model that would predict,
+given these territory statistics, what the difference in squares will
+eventually be in the endgame.
+
+<p>I started with an extremely simple linear model (and never really changed it
+afterwards): the predicted difference in endgame moves is <i>K<sub>1</sub></i>
+( <i>N<sub>1</sub></i> - <i>N<sub>2</sub></i>) + <i>K<sub>2</sub></i>(
+<i>E<sub>1</sub></i> - <i>E<sub>2</sub></i>) where <i>N<sub>i</sub></i> is the
+number of nodes in player <i>i</i>'s territory and <i>E<sub>i</sub></i> is the
+number of edges (double-counted actually).
+
+<p>Now, this model is pretty far from absolutely great, and only a little
+predictive.  This is what the raw data looks like after analyzing 11691 of the
+games the top-100 players (at the time) had played:
+
+<p><img src="nodes.png"><br>
+<img src="edges.png">
+
+<p>That's the difference of nodes/edges on the <i>x</i>-axis and the difference
+of endgame moves on the <i>y</i>-axis.  So both nodes and edges by the Voronoi
+metric are, of course, correlated.  I did a linear regression to find
+approximate values for <i>K<sub>1</sub></i> (currently 0.055) and
+<i>K<sub>2</sub></i> (0.194) and multiplied through by 1000 to keep everything
+integers.
+
+<p>This definitely improved play in my own testing (I kept 14 different
+versions of my bot throughout the contest so I could compare them.
+Interestingly, no bot ever totally shut out another bot on all maps in my
+tests; every bot has a weakness).  Once I had that, I was doing very well in
+the leaderboard rankings.  At around this point, <a
+  href="http://www.benzedrine.cx/tron/">dhartmei's server</a> showed up, and my
+bot did very well on there too, which was a much more reassuring thing.  But it
+was still losing a lot of games.
+
+
+<hr>
+
+<i>N<sub>1</sub></i>
+<i>N<sub>2</sub></i>
+<i>E<sub>1</sub></i>
+<i>E<sub>2</sub></i>
+
+<i>K<sub>1</sub></i>
+<i>K<sub>2</sub></i>
 
