@@ -1,0 +1,58 @@
+ 1. Explain the contest, and the Tron light cycle game, and various
+analogues in the past (Snake, Snafu, etc), and how programs receive
+boards and submit moves
+ 2. Wall-hugging strategies that most computer players in variants of
+this game use, and how I implemented it
+  - Count the neighbors for each potential move, prefer the fewest
+  - Connected components in a graph: choose the biggest one
+  - Articulation points: what they are, and how to avoid heuristically
+  - 3x3 neighborhood approximation of articulation points
+ 3. We want to look several moves ahead, just like in Chess [1]: Minimax
+  - Alpha-beta pruning, briefly - same results as minimax but a faster search
+  - Iterative deepening: do the same thing over and over but search
+deeper each time
+  - "killer heuristic": choose the best move from previous search
+first, hopefully resulting in early pruning
+ 4. minimax heuristics: how to guess who is going to win
+  - Voronoi diagram of graph, illustrated similarly to my blog
+  - Heuristic value of edge/node counts?  Just add them up?
+ 5. Data mining: use existing games to find a heuristic rather than guessing
+  - download games with a perl script [2]
+  - linear model
+  - implementing multivariate linear regression in a quick and dirty
+perl script (this involves a decent amount of math which could easily
+be done by some other tool, but that is what I did...)
+  - Example games that this much works well on and games it loses on
+ 6. Chamber trees: separate the map by its articulation points
+  - Articulation points again: how to actually calculate them in linear time
+  - Same observations about "battlefront" strategy as in blog post
+  - Implementing approximate search for maximum usable space
+  - Show similar games where this change of strategy makes a difference
+ 7. Contest wrap-up: I won yay, these other dudes were doing these other things:
+  - popular iterative-deepening minimax search improvements I didn't
+implement: negascout, Zobrist hashing, transposition tables,
+evaluation cache, move ordering
+     - why did I still win despite not doing those things?  better
+evaluation function.
+  - Use different heuristic weights for different #s of neighbors
+rather than K1+K2*neighbors linear model (one guy at least did this
+with weights set by hand; I would data mine for these)
+  - Things that didn't work as well that seemed like they should:
+UCT/Monte Carlo algorithms, which are the best at Go
+  - Other potential improvements for a future Tron AI competition?
+Wish I knew who "hebbie" is and what he's doing, cuz his unofficial
+bot beats the pants off mine now.
+
+[1]: I also want to point out the fact that minimax is technically not
+the right thing to do for Tron, because players make simultaneous
+moves and minimax is for taking turns, without breaking up the flow of
+the article.  This involves game theory and probabilities and stuff.
+(There's a forum thread on the topic here:
+http://csclub.uwaterloo.ca/contest/forums/viewtopic.php?f=8&t=331 )
+Can we do a sidebar or inset box or something like that?
+
+[2]: I don't know how much longer the article will outlast the contest
+site, so I don't know how much sense it makes to give any detail at
+all on, e.g., downloading games from the site and what format they
+were in.
+
