@@ -9,20 +9,26 @@ an <a href="http://icfpcontest.org/">ICFP contest</a> I'm always anxious to see
 the post mortems of the people who did better than I did, and I imagine a lot
 of people are curious as to how I won, exactly.  So here's my post-mortem.
 
+<h3>Code</h3>
+
 <p>Before we get into it, note that all of my code is <a
   href="http://github.com/a1k0n/tronbot/">on github here</a>.  The commit logs
 might be a mildly entertaining read.
 
+<h3>Phase 1: denial</h3>
+
 <p>The first thing I did was attempt to ignore this contest as long as
 possible, because month-long programming contests get me into a lot of trouble
-at work.  The game was the Tron light cycle game.  I've played variants of this
-game ever since I got one of <a
+at work and at home.  The contest was the Tron light cycle game.  I've played
+variants of this game ever since I got one of <a
   href="http://www.handheldmuseum.com/Tomy/Tron.htm">these</a> when I was in
-1st grade or so.  The most fun was my uncle's copy of <a
+1st grade or so.  The most fun variant was my uncle's copy of <a
   href="http://www.youtube.com/watch?v=BK_a8xV3O6w">Snafu for the
   Intellivision</a> which we played at my Grandma's house all day long.  I've
 long wondered how to write a bot for it, because the AI on these usually isn't
 very smart.
+
+<h3>Phase 2: space-filling</h3>
 
 <p>But I finally gave in on the 9th, downloaded a starter pack, and attempted
 to make a simple semi-decent wall-hugging bot.  I quickly discovered a simple
@@ -55,12 +61,21 @@ structure is for; it has this algorithm and simple sometimes-O(1),
 sometimes-O(<i>NM</i>) update functions based on
 <tt>potential_articulation</tt> above.
 
+<h3>Phase 3: minimax</h3>
+
 <p>I left it at that for the rest of the week and then Friday the 12th I was
 inspired by various posts on the official contest forum to implement <a
   href="http://en.wikipedia.org/wiki/Minimax">minimax</a> with <a
   href="http://en.wikipedia.org/wiki/Alpha-beta_pruning">alpha-beta
-  pruning</a>, and using the popular Voronoi heuristic for evaluating
-territory before the endgame.
+  pruning</a>, which would let it look several moves ahead before deciding what
+to do.  The problem with this approach is that you have to have some way of
+estimating who is going to win and by how much, given any possible
+configuration of walls and players.  If the players are separated by a wall,
+then the one with the most open squares, for the most part, wins.  If they
+aren't separated, then we need to somehow guess who will be able to wall in
+whom into a smaller space.  To do that, I did what everyone else in the contest
+who had read the forums was doing at this point: I used the so-called Voronoi
+heuristic.
 
 <p>The "Voronoi heuristic" works like this: for each spot on the map, find
 whether player 1 can reach it before player 2 does or vice versa.  This creates
@@ -86,6 +101,8 @@ only used to <i>predict</i> an endgame situation.  After the bot actually
 reached the endgame, it simply used the greedy wall-following heuristic
 described above, and it performed admirably for doing no searching at all.
 
+<h3>evaluation heuristic tweaking</h3>
+
 <p>I next noticed that my bot would make some fairly random moves in the early
 game, effectively cluttering its own space.  So I took a cue from my flood
 filling heuristic and added a territory bonus for the number of open neighbors
@@ -99,6 +116,19 @@ average bot.  Due to the arbitrariness of the ranking up until the last week in
 the contest, it briefly hit the #1 spot and then settled to a random spot on
 the first page.  It was pretty hard to tell whether it was any good, but I was
 losing some games, so I figured it must not be.
+
+<h3>endgame tweaking</h3>
+
+<p>The next realization was that my bot was doing a lot of stupid things in the
+endgame.  So the next improvement was to do an iteratively-deepened search in
+the endgame.  I exhaustively tried all possible moves, and at the bottom of the
+search tree, ran my greedy heuristic to completion.  Whichever move sequence
+"primed" the greedy evaluator the best wins.  This works great on the smallish
+official contest maps.  It works terribly on very large random maps currently
+in rotation on <a href="http://www.benzedrine.cx/tron/">dhartmei's server</a>,
+but I didn't realize that until after the contest.
+
+<h3>data mining</h3>
 
 <p>I was out of ideas for a while and spent some time optimizing (I used
 Dijkstra's to do the Voronoi computation and I sped it up by using what I call
@@ -125,8 +155,8 @@ eventually be in the endgame.
 
 <p>I started with an extremely simple linear model (and never really changed it
 afterwards): the predicted difference in endgame moves is <i>K<sub>1</sub></i>
-( <i>N<sub>1</sub></i> - <i>N<sub>2</sub></i>) + <i>K<sub>2</sub></i>(
-<i>E<sub>1</sub></i> - <i>E<sub>2</sub></i>) where <i>N<sub>i</sub></i> is the
+(<i>N<sub>1</sub></i> - <i>N<sub>2</sub></i>) + <i>K<sub>2</sub></i>
+(<i>E<sub>1</sub></i> - <i>E<sub>2</sub></i>) where <i>N<sub>i</sub></i> is the
 number of nodes in player <i>i</i>'s territory and <i>E<sub>i</sub></i> is the
 number of edges (double-counted actually).
 
@@ -146,21 +176,104 @@ integers.
 
 <p>This definitely improved play in my own testing (I kept 14 different
 versions of my bot throughout the contest so I could compare them.
-Interestingly, no bot ever totally shut out another bot on all maps in my
+Interestingly, no bot ever totally shut out a previous bot on all maps in my
 tests; every bot has a weakness).  Once I had that, I was doing very well in
-the leaderboard rankings.  At around this point, <a
-  href="http://www.benzedrine.cx/tron/">dhartmei's server</a> showed up, and my
-bot did very well on there too, which was a much more reassuring thing.  But it
-was still losing a lot of games.
+the leaderboard rankings.
 
+<h3>applied graph theory</h3>
 
-<hr>
+<p>Next I noticed <a
+  href="http://csclub.uwaterloo.ca/contest/forums/viewtopic.php?f=8&t=319&start=10#p1568">dmj's
+  "mostly useless" idea</a> on the official contest forums: Pretend the game is
+played on a checkerboard.  Each player can only move from red to black and vice
+versa.  Therefore, if a given space has a lot more "red" squares than "black"
+squares, the surplus "red" squares will necessarily be wasted.  I switched out
+all my space counting code to count up red and black spaces, and found a
+tighter upper bound on the amount of space an ideal bot could fill.  This let
+my endgame code stop searching when it had found a solution matching the upper
+bound, and gave slightly more realistic territory evaluations.
 
-<i>N<sub>1</sub></i>
-<i>N<sub>2</sub></i>
-<i>E<sub>1</sub></i>
-<i>E<sub>2</sub></i>
+<p>I had already started to think about what came to be called "chamber trees",
+as <a
+  href="http://csclub.uwaterloo.ca/contest/forums/viewtopic.php?f=8&t=319#p1484">pointed
+  out by iouri in the same thread</a>: find all the articulation points on the
+map and construct a graph of connected spaces.  I implemented the standard
+O(<i>N</i>) algorithm for finding articulation points (<a
+  href="http://github.com/a1k0n/tronbot/blob/a1k0nbot-2.18.2/cpp/MyTronBot.cc#L513"><tt>calc_articulations</tt></a>,
+taken from <a
+  href="http://www.eecs.wsu.edu/~holder/courses/CptS223/spr08/slides/graphapps.pdf">this
+  presentation [pdf]</a>).  I messed around with this idea but nothing came to
+fruition until just before the deadline.
 
-<i>K<sub>1</sub></i>
-<i>K<sub>2</sub></i>
+<p>At around this point, I got extremely sick and spent all day Wednesday in
+bed.  That day, <a
+  href="http://www.benzedrine.cx/tron/">dhartmei's server</a> showed up, which
+was a huge blessing.  I ran my bot on there in the background all Thursday
+long, and it did very well on there too, which was a very reassuring thing.
+But it was still losing a lot of games.
+
+<p>So finally, after failing to get to sleep Thursday night thanks to coughing
+and being unable to breathe through my nose, I was struck by an idea at around
+3am.  This, it turns out, was probably the contest-winning idea, though I'm not
+so sure that nobody else implemented it.  Anyway, take a look at this game (<a
+  href="http://csclub.uwaterloo.ca/contest/visualizer.php?game_id=3878644">a1k0n_
+  v. ecv257</a>):
+
+<center><img src="example1.png" /></center>
+
+<p>(The little circles are the articulation points found by the algorithm
+above.) By the so-called Voronoi heuristic, blue has a lot more space than red
+does.  But red is ultimately going to win this game, because the only space
+that blue controls that matters here is the space that borders red.  Blue can
+choose to cut off that space and fill in the two chambers on the right, or it
+can choose to move into the left chamber and take its claim on what I call the
+"battlefront": the border between blue space and red space.
+
+<p>I had long ago come to the realization that a better evaluation heuristic
+will always beat deeper minimax searches, because a deep minimax search using a
+flawed evaluation heuristic is self-deluded about what its opponent is actually
+going to do, and will favor moves that lose to moves that win, simply because
+it can't tell the difference.  Anything you can do to make your evaluation
+function smarter will result in improved play in the long run.
+
+<p>In this case, I decided to make my evaluation function aware of the above
+condition: if the player is not in the chamber containing the "battlefront",
+then make the choice I outlined above.  More formally, the new heuristic value
+is the same as the old one, but <i>N<sub>i</sub></i> and <i>E<sub>i</sub></i>
+are counted differently.  First, find all cut vertices <i>assuming the
+  opponent's territory by the Voronoi metric is disconnected</i>.  Start a
+depth-first search in the player's "chamber", count <i>N<sub>i</sub></i> and
+<i>E<sub>i</sub></i> within the chamber, and list all the neighboring cut
+vertices but do not traverse them (<a
+  href="http://github.com/a1k0n/tronbot/blob/a1k0nbot-2.18.2/cpp/MyTronBot.cc#L547"><tt>_explore_space</tt></a>).
+Now, explore space recursively for each adjacent cut vertex.  If child
+<i>j</i>'s space is <i>not</i> a battlefront, then our potential value is the
+sum of the current chamber size and child <i>j</i>'s value.  Otherwise, it
+<i>is</i> a bottlefront, and we ignore the current chamber's size but add only
+the number of steps it takes to enter the child chamber (I don't have a good
+formal reason for this, it just seemed intuitively right).  After computing
+this potential value for each child, we return the maximum of them as the
+current chamber's value.
+
+<p>Therefore the new code will handle the mutual exclusion of battlefront
+chambers and other chambers, and force it to choose to either ignore the upper
+left chamber or ignore the two chambers on the right.
+
+<p>The idea was extremely roughly-formed when I implemented it (see <a
+  href="http://github.com/a1k0n/tronbot/blob/a1k0nbot-2.18.2/cpp/MyTronBot.cc#L586"><tt>max_articulated_space</tt></a>),
+but it did improve play markedly after throwing it together (again, it didn't
+shut out the previous version of my bot totally but it won 12-1 IIRC).
+
+<p>I also had the idea of negatively counting the space we ignore on a
+battlefront, as we are effectively handing that space to our opponent.  Never
+got a chance to try it, though.  Might be a nice improvement.
+
+<p>So that was it.  I submitted that Friday around noon, and was subsequently
+afraid to touch it.  (My wife and son and I left for Wisconsin Dells right
+afterwards, where I couldn't help but check rankings on my cellphone and keep
+up on the forums the whole time, which didn't go over well)  The bot is still
+running on <a href="http://www.benzedrine.cx/tron/">dhartmei's server</a>, and
+still loses many games as a result of miscounting the opponent's space in the
+endgame, since my endgame evaluation wasn't very good.  But it was good enough
+for the contest.
 
