@@ -10,10 +10,10 @@
 
 #include "artictbl.h"
 
-#define TIMEOUT_USEC 9900
-#define FIRSTMOVE_USEC 29500
-//#define TIMEOUT_USEC 990000
-//#define FIRSTMOVE_USEC 2950000
+//#define TIMEOUT_USEC 9900
+//#define FIRSTMOVE_USEC 29500
+#define TIMEOUT_USEC 990000
+#define FIRSTMOVE_USEC 2950000
 #define DEPTH_INITIAL 1
 #define DEPTH_MAX 100
 #define DRAW_PENALTY 0 // -itr // -500
@@ -383,47 +383,39 @@ static long elapsed_time() { return _get_time() - _timer; }
 // {{{ Dijkstra's
 static void dijkstra(Map<int> &d, const position &s, Components &cp, int component)
 {
-  static std::vector<std::vector<position> > Q;
-  static Map<int> loc;
-  size_t min_dist=0;
+  static std::vector<position> Q[2];
+  size_t activeq=0;
   int siz = M.width*M.height;
   for(int idx=0;idx<siz;idx++)
     d(idx) = INT_MAX;
-  if(!loc.map) loc.resize(d.width, d.height);
 
-  Q.clear(); Q.push_back(std::vector<position>());
   Q[0].push_back(s);
   d(s) = 0;
-  loc(s) = 0;
-  while(min_dist != Q.size()) {
-    position u = Q[min_dist].back();
-    Q[min_dist].pop_back();
-    for(int m=0;m<4;m++) {
-      position v = u.next(m);
-      if(M(v)) continue;
-      int alt = 1 + d(u);
-      int dist = d(v);
-      if(dist == INT_MAX) {
-        while(alt >= (int)Q.size())
-          Q.push_back(std::vector<position>());
-        int newloc = Q[alt].size();
-        Q[alt].push_back(v);
-        d(v) = alt;
-        loc(v) = newloc;
-      } else if(alt < dist) {
-        // move last element to this one's spot in the pqueue
-        int moveelem = Q[dist].size()-1;
-        Q[dist][loc(v)] = Q[dist][moveelem];
-        loc(Q[dist][moveelem]) = loc(v);
-        Q[dist].pop_back();
-
-        d(v) = alt;
-        loc(v) = Q[alt].size()-1;
-        Q[alt].push_back(v);
+  int radius = 0;
+  do {
+    while(!Q[activeq].empty()) {
+      position u = Q[activeq].back();
+      //fprintf(stderr, "r=%d d(u) = %d\n", radius, d(u));
+      assert(d(u) == radius);
+      Q[activeq].pop_back();
+      for(int m=0;m<4;m++) {
+        position v = u.next(m);
+        if(M(v)) continue;
+        int dist = d(v);
+        if(dist == INT_MAX) {
+          Q[activeq^1].push_back(v);
+          d(v) = 1+d(u);
+        } else {
+          assert(1+d(u) >= dist);
+        }
       }
     }
-    while(min_dist < Q.size() && Q[min_dist].empty()) min_dist++;
-  }
+    activeq ^= 1;
+    radius++;
+  } while(!Q[activeq].empty());
+
+  assert(Q[0].empty());
+  assert(Q[1].empty());
 }
 
 // }}}
@@ -657,8 +649,8 @@ static int _evaluate_territory(const gamestate &s, Components &cp, int comp, boo
           fprintf(stderr,"A");
         else if(position(i,j) == s.p[1])
           fprintf(stderr,"B");
-//        else if(articd(i,j))
-//          fprintf(stderr,"-");
+        else if(articd(i,j))
+          fprintf(stderr,d<0 ? "x" : "o");
         else if(d == INT_MAX || d == -INT_MAX || M(i,j))
           fprintf(stderr,"#");
         else if(d == 0)
